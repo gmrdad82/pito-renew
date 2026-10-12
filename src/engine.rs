@@ -248,7 +248,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn restart_spawns_the_named_binary_detached() {
-        assert!(restart(Path::new("/bin/true")).is_ok());
+        assert!(restart(Path::new("/usr/bin/true")).is_ok());
         assert!(restart(Path::new("/definitely/not/a/binary")).is_err());
     }
 
