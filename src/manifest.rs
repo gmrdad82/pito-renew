@@ -11,6 +11,14 @@ const SIGNATURE_BYTES: u64 = 4 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Manifest {
+    #[serde(flatten)]
+    latest: Entry,
+    #[serde(default)]
+    releases: Vec<Entry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct Entry {
     version: String,
     platforms: HashMap<String, Binary>,
 }
@@ -23,9 +31,15 @@ pub struct Binary {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Check {
-    Current,
-    Available { version: String, binary: Binary },
+pub struct Release {
+    pub version: String,
+    pub binary: Binary,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Check {
+    pub update: Option<Release>,
+    pub new_major: Option<Release>,
 }
 
 pub fn platform_key() -> &'static str {
@@ -58,18 +72,36 @@ impl Manifest {
     }
 
     pub(crate) fn check_against(&self, current_version: &str) -> Result<Check, RenewError> {
-        let mut current: semver::Version = current_version
-            .parse()
-            .map_err(|_| RenewError::BadVersion)?;
-        let mut latest: semver::Version = self
-            .version
-            .parse()
-            .map_err(|_| RenewError::ManifestMalformed)?;
-        current.build = semver::BuildMetadata::EMPTY;
-        latest.build = semver::BuildMetadata::EMPTY;
-        if latest <= current {
-            return Ok(Check::Current);
+        let current = stripped(current_version).ok_or(RenewError::BadVersion)?;
+        let mut entries = Vec::with_capacity(1 + self.releases.len());
+        for entry in std::iter::once(&self.latest).chain(&self.releases) {
+            let version = stripped(&entry.version).ok_or(RenewError::ManifestMalformed)?;
+            entries.push((version, entry));
         }
+        let newest = |in_line: fn(&semver::Version, &semver::Version) -> bool| {
+            entries
+                .iter()
+                .filter(|(version, _)| in_line(version, &current))
+                .max_by(|a, b| a.0.cmp(&b.0))
+                .map(|(_, entry)| *entry)
+        };
+        let update = newest(|version, current| version.major == current.major && version > current)
+            .map(Entry::release)
+            .transpose()?;
+        let new_major = newest(|version, current| version.major > current.major)
+            .and_then(|entry| entry.release().ok());
+        Ok(Check { update, new_major })
+    }
+}
+
+fn stripped(version: &str) -> Option<semver::Version> {
+    let mut version: semver::Version = version.parse().ok()?;
+    version.build = semver::BuildMetadata::EMPTY;
+    Some(version)
+}
+
+impl Entry {
+    fn release(&self) -> Result<Release, RenewError> {
         let binary = self
             .platforms
             .get(platform_key())
@@ -82,7 +114,7 @@ impl Manifest {
                 detail: format!("published size {} is outside the sane band", binary.size),
             });
         }
-        Ok(Check::Available {
+        Ok(Release {
             version: self.version.clone(),
             binary: binary.clone(),
         })
@@ -126,6 +158,78 @@ mod tests {
         manifest_with(version, key, &"ab".repeat(32), size)
     }
 
+    fn entry(version: &str, key: &str) -> String {
+        format!(
+            r#""version":"{version}","platforms":{{"{key}":{{"url":"https://example.invalid/{version}","sha256":"{sha256}","size":100}}}}"#,
+            sha256 = "ab".repeat(32),
+        )
+    }
+
+    fn lines(latest: &str, releases: &[&str]) -> Manifest {
+        let releases: Vec<String> = releases
+            .iter()
+            .map(|version| format!("{{{}}}", entry(version, platform_key())))
+            .collect();
+        let raw = format!(
+            r#"{{{},"releases":[{}]}}"#,
+            entry(latest, platform_key()),
+            releases.join(",")
+        );
+        Manifest::parse(raw.as_bytes()).unwrap()
+    }
+
+    fn versions(check: &Check) -> (Option<&str>, Option<&str>) {
+        (
+            check
+                .update
+                .as_ref()
+                .map(|release| release.version.as_str()),
+            check
+                .new_major
+                .as_ref()
+                .map(|release| release.version.as_str()),
+        )
+    }
+
+    #[test]
+    fn updates_stay_inside_the_running_major_and_a_later_major_is_only_offered() {
+        let manifest = lines("2.0.0", &["1.5.0", "1.5.1", "1.4.3", "0.9.9"]);
+        for (running, update, new_major) in [
+            ("1.4.2", Some("1.5.1"), Some("2.0.0")),
+            ("1.5.0", Some("1.5.1"), Some("2.0.0")),
+            ("1.5.1", None, Some("2.0.0")),
+            ("1.0.0-rc.3", Some("1.5.1"), Some("2.0.0")),
+            ("2.0.0", None, None),
+            ("0.9.0", Some("0.9.9"), Some("2.0.0")),
+        ] {
+            let check = manifest.check_against(running).unwrap();
+            assert_eq!(versions(&check), (update, new_major), "running {running}");
+        }
+    }
+
+    #[test]
+    fn the_newest_of_several_later_majors_is_the_offer_and_its_binary_rides_along() {
+        let check = lines("3.1.0", &["2.4.0", "3.0.2"])
+            .check_against("1.2.0")
+            .unwrap();
+        assert_eq!(versions(&check), (None, Some("3.1.0")));
+        assert_eq!(check.new_major.unwrap().binary.size, 100);
+    }
+
+    #[test]
+    fn a_later_major_without_this_platform_is_not_offered_and_never_blocks_the_update() {
+        let raw = format!(
+            r#"{{{},"releases":[{{{}}}]}}"#,
+            entry("2.0.0", "definitely-not-this-platform"),
+            entry("1.5.1", platform_key()),
+        );
+        let check = Manifest::parse(raw.as_bytes())
+            .unwrap()
+            .check_against("1.4.2")
+            .unwrap();
+        assert_eq!(versions(&check), (Some("1.5.1"), None));
+    }
+
     #[test]
     fn platform_key_matches_this_build_target() {
         let key = platform_key();
@@ -143,7 +247,7 @@ mod tests {
             let check = manifest(published, platform_key(), 100)
                 .check_against("1.1.0")
                 .unwrap();
-            assert_eq!(check, Check::Current, "published {published}");
+            assert_eq!(check, Check::default(), "published {published}");
         }
     }
 
@@ -153,7 +257,7 @@ mod tests {
             let check = manifest(published, platform_key(), 100)
                 .check_against(running)
                 .unwrap();
-            assert_eq!(check, Check::Current, "{published} against {running}");
+            assert_eq!(check, Check::default(), "{published} against {running}");
         }
     }
 
@@ -162,19 +266,19 @@ mod tests {
         let check = manifest("1.0.0", platform_key(), 100)
             .check_against("1.0.0-rc.1")
             .unwrap();
-        assert!(matches!(check, Check::Available { .. }));
+        assert!(check.update.is_some());
     }
 
     #[test]
     fn a_newer_version_without_this_platform_is_a_named_refusal() {
-        let outcome = manifest("2.0.0", "definitely-not-this-platform", 100).check_against("1.0.0");
+        let outcome = manifest("1.1.0", "definitely-not-this-platform", 100).check_against("1.0.0");
         assert!(matches!(outcome, Err(RenewError::NoPlatformBinary)));
     }
 
     #[test]
     fn a_zero_or_absurd_published_size_is_refused() {
         for size in [0, MAX_BINARY_BYTES + 1] {
-            let outcome = manifest("2.0.0", platform_key(), size).check_against("1.0.0");
+            let outcome = manifest("1.1.0", platform_key(), size).check_against("1.0.0");
             assert!(matches!(outcome, Err(RenewError::VerifyFailed { .. })));
         }
     }
@@ -187,7 +291,7 @@ mod tests {
             format!("{}g", "a".repeat(63)),
         ] {
             let outcome =
-                manifest_with("2.0.0", platform_key(), &sha256, 100).check_against("1.0.0");
+                manifest_with("1.1.0", platform_key(), &sha256, 100).check_against("1.0.0");
             assert!(
                 matches!(outcome, Err(RenewError::ManifestMalformed)),
                 "sha256 {sha256}"
@@ -209,7 +313,7 @@ mod tests {
 
     #[test]
     fn an_unparseable_current_version_is_a_bad_version_not_a_bad_manifest() {
-        let outcome = manifest("2.0.0", platform_key(), 100).check_against("not-semver");
+        let outcome = manifest("1.1.0", platform_key(), 100).check_against("not-semver");
         assert!(matches!(outcome, Err(RenewError::BadVersion)));
     }
 

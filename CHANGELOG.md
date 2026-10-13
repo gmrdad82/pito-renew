@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Updates stay inside the running app's major version: 1.4.2 takes 1.5.0 and 1.5.1, patches included, and never moves to 2.0.0 by itself. A newer major is reported separately as an offer, with its binary, for the app to show as an upgrade.
+- The manifest may list the newest release of each older major under `releases`, so older majors keep getting updates after a new one ships.
+
 ### Changed
+
+- Breaking: `check` answers a `Check` with `update` and `new_major`, each a `Release` or none, in place of `Current` and `Available`.
 
 - The brand now reads PITO MD.
 - Breaking: the release manifest must be signed with minisign, and `check` takes the app's public key; an unsigned or mis-signed manifest is refused before it is read.

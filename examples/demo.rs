@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
-use renew::{Check, platform_key};
+use renew::{Check, Release, platform_key};
 
 const CURRENT: &str = "1.0.0";
 const LATEST: &str = "1.1.0";
@@ -67,11 +67,14 @@ fn main() {
         &keys.pk.to_base64(),
         CURRENT,
     ) {
-        Ok(Check::Available { version, binary }) => {
+        Ok(Check {
+            update: Some(Release { version, binary }),
+            ..
+        }) => {
             println!("check     {version} is out, {} bytes", binary.size);
             binary
         }
-        Ok(Check::Current) => {
+        Ok(Check { update: None, .. }) => {
             println!("check     up to date");
             return;
         }

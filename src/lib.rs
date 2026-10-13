@@ -2,7 +2,7 @@ mod engine;
 mod manifest;
 
 pub use engine::{clean_old_binary, install, restart, staging_path};
-pub use manifest::{Binary, Check, platform_key};
+pub use manifest::{Binary, Check, Release, platform_key};
 
 use std::time::Duration;
 
@@ -141,13 +141,12 @@ mod tests {
         let keys = keys();
         let (raw, signature) = signed_manifest(&keys);
         let url = served(raw, signature);
-        match check(&url, &keys.pk.to_base64(), "1.0.0").unwrap() {
-            Check::Available { version, binary } => {
-                assert_eq!(version, "1.1.0");
-                assert_eq!(binary.size, 100);
-            }
-            Check::Current => panic!("a newer signed version must be Available"),
-        }
+        let update = check(&url, &keys.pk.to_base64(), "1.0.0")
+            .unwrap()
+            .update
+            .expect("a newer signed version must be an update");
+        assert_eq!(update.version, "1.1.0");
+        assert_eq!(update.binary.size, 100);
     }
 
     #[test]

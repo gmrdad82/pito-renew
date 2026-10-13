@@ -23,7 +23,7 @@ also builds for native Windows, where the swap parks the running binary as
 It isn't on crates.io; add it from git, pinned to a release tag:
 
 ```toml
-renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "v0.1.2" }
+renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "v0.2.0" }
 ```
 
 It uses [ureq](https://crates.io/crates/ureq) with rustls for HTTP, so it
@@ -42,6 +42,21 @@ Write a manifest:
     "linux-x86_64": { "url": "https://example.com/app/1.1.0/app-linux-x86_64", "sha256": "…", "size": 10485760 },
     "macos-arm64": { "url": "https://example.com/app/1.1.0/app-macos-arm64", "sha256": "…", "size": 9437184 }
   }
+}
+```
+
+The top-level `version` and `platforms` are the newest release. Updates stay
+inside the running app's major version: an app at 1.4.2 takes 1.5.0 or
+1.5.1, never 2.0.0 by itself. To keep an older major updated after a new one
+ships, list the newest release of each older major under `releases`:
+
+```json
+{
+  "version": "2.0.0",
+  "platforms": { "linux-x86_64": { "url": "…", "sha256": "…", "size": 11534336 } },
+  "releases": [
+    { "version": "1.5.1", "platforms": { "linux-x86_64": { "url": "…", "sha256": "…", "size": 10485760 } } }
+  ]
 }
 ```
 
@@ -69,19 +84,21 @@ const RELEASE_KEY: &str = "RWQ…";
 fn update() -> Result<(), Box<dyn Error>> {
     let exe = std::env::current_exe()?;
     renew::clean_old_binary(&exe);
-    match renew::check(
+    let Check { update, new_major } = renew::check(
         "https://example.com/app/manifest.json",
         RELEASE_KEY,
         env!("CARGO_PKG_VERSION"),
-    )? {
-        Check::Current => Ok(()),
-        Check::Available { version, binary } => {
-            println!("installing {version}");
-            renew::install(&binary, &exe)?;
-            renew::restart(&exe)?;
-            std::process::exit(0);
-        }
+    )?;
+    if let Some(offer) = new_major {
+        println!("{} is out, a new version to get", offer.version);
     }
+    let Some(update) = update else {
+        return Ok(());
+    };
+    println!("installing {}", update.version);
+    renew::install(&update.binary, &exe)?;
+    renew::restart(&exe)?;
+    std::process::exit(0);
 }
 ```
 
@@ -90,10 +107,16 @@ fn update() -> Result<(), Box<dyn Error>> {
   signature over the exact manifest bytes before it reads them. It refuses an
   unsigned or mis-signed manifest, plain http to any host but this machine,
   a sha256 that isn't 64 hex digits, and a published size of 0 or over
-  512 MiB. It compares the signed version with the running one by semver,
-  ignoring build metadata, and answers `Check::Current`, or
-  `Check::Available` with the new version and this platform's binary. An
-  older or equal signed manifest replayed by the host is `Check::Current`.
+  512 MiB. It compares every signed version with the running one by semver,
+  ignoring build metadata, and answers a `Check` with two fields, each a
+  `Release` (the version and this platform's binary) or `None`: `update`, the
+  newest release newer than the running one inside its major, patches
+  included, and `new_major`, the newest release of a later major, offered and
+  never installed by itself (the app may `install` its binary once the user
+  has it). A later major with no binary for this platform isn't offered. An
+  older or equal signed manifest replayed by the host has no `update`. It
+  keeps no state, so the app calls it on its own schedule and whenever the
+  user asks to check for updates.
 - `install(&binary, &exe)` downloads over HTTPS (plain http only to this
   machine) to `<exe>.staging` (180 s timeout), which it creates itself, mode
   0755, and never through an existing file or link: when `<exe>.staging`
