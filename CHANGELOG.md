@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1 — 2026-10-13
+
+### Changed
+
+- Updates cross major versions: an app at 1.4.2 now takes 2.0.0 like any other update. `new_major` holds the same release when it is a later major, so the app can say so. If a later major has no binary for this platform, the update falls back to the newest release of the running major.
+
 ## v0.2.0 — 2026-10-13
 
 ### Added
