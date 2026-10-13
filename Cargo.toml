@@ -11,6 +11,7 @@ publish = false
 
 [dependencies]
 fetch = { git = "https://github.com/gmrdad82/pito-fetch", tag = "v0.1.2" }
+minisign-verify = "=0.3.0"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -18,4 +19,5 @@ thiserror = "2"
 ureq = { version = "3.3.0", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
+minisign = "=0.10.0"
 tempfile = "3"

@@ -1,3 +1,5 @@
+use std::ffi::OsString;
+use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -8,39 +10,62 @@ use crate::{DOWNLOAD_TIMEOUT, RenewError};
 const CHUNK: usize = 64 * 1024;
 
 pub fn staging_path(exe: &Path) -> PathBuf {
-    exe.with_extension("staging")
+    beside(exe, ".staging")
 }
 
 fn old_path(exe: &Path) -> PathBuf {
-    exe.with_extension("old")
+    beside(exe, ".old")
+}
+
+fn beside(exe: &Path, suffix: &str) -> PathBuf {
+    let mut name = OsString::from(exe.as_os_str());
+    name.push(suffix);
+    PathBuf::from(name)
 }
 
 pub fn install(binary: &Binary, exe: &Path) -> Result<(), RenewError> {
+    let response = crate::get(&binary.url, DOWNLOAD_TIMEOUT, RenewError::DownloadFailed)?;
     let staging = staging_path(exe);
-    let outcome = download_verified(binary, &staging).and_then(|()| swap_in(exe, &staging));
+    let file = create_staging(&staging)?;
+    let outcome = download_verified(binary, response.into_body().into_reader(), file)
+        .and_then(|()| swap_in(exe, &staging));
     if outcome.is_err() {
         let _ = std::fs::remove_file(&staging);
     }
     outcome
 }
 
-fn download_verified(binary: &Binary, staging: &Path) -> Result<(), RenewError> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(DOWNLOAD_TIMEOUT))
-        .http_status_as_error(false)
-        .build()
-        .into();
-    let response = agent
-        .get(&binary.url)
-        .call()
-        .map_err(|_| RenewError::DownloadFailed)?;
-    if !response.status().is_success() {
-        return Err(RenewError::DownloadFailed);
+#[cfg(unix)]
+fn create_staging(staging: &Path) -> Result<File, RenewError> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(staging)
+        .map_err(|source| RenewError::StageFailed { source })?;
+    if let Err(source) = file.set_permissions(std::fs::Permissions::from_mode(0o755)) {
+        drop(file);
+        let _ = std::fs::remove_file(staging);
+        return Err(RenewError::StageFailed { source });
     }
+    Ok(file)
+}
 
-    let mut reader = response.into_body().into_reader();
-    let mut file =
-        std::fs::File::create(staging).map_err(|source| RenewError::StageFailed { source })?;
+#[cfg(windows)]
+fn create_staging(staging: &Path) -> Result<File, RenewError> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(staging)
+        .map_err(|source| RenewError::StageFailed { source })
+}
+
+fn download_verified(
+    binary: &Binary,
+    mut reader: impl Read,
+    mut file: File,
+) -> Result<(), RenewError> {
     let mut hasher = fetch::StreamHasher::new();
     let mut received: u64 = 0;
     let mut buf = [0u8; CHUNK];
@@ -81,14 +106,13 @@ fn download_verified(binary: &Binary, staging: &Path) -> Result<(), RenewError> 
 
 #[cfg(unix)]
 fn swap_in(exe: &Path, staging: &Path) -> Result<(), RenewError> {
-    use std::os::unix::fs::PermissionsExt;
-    let swap = || -> std::io::Result<()> {
-        let mut perms = std::fs::metadata(staging)?.permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(staging, perms)?;
-        std::fs::rename(staging, exe)
-    };
-    swap().map_err(|source| RenewError::SwapFailed { source })
+    std::fs::rename(staging, exe).map_err(|source| RenewError::SwapFailed { source })?;
+    if let Some(parent) = exe.parent()
+        && let Ok(dir) = File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -176,7 +200,11 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&exe).unwrap().permissions().mode();
-            assert_eq!(mode & 0o755, 0o755, "the new binary must be executable");
+            assert_eq!(
+                mode & 0o777,
+                0o755,
+                "the new binary is 0755 whatever the umask"
+            );
         }
     }
 
@@ -218,7 +246,7 @@ mod tests {
         let dir = scratch();
         let exe = dir.path().join("pito-work");
         std::fs::write(&exe, b"old binary").unwrap();
-        let url = String::from("http://renew.invalid/gone");
+        let url = String::from("https://renew.invalid/gone");
         let binary = Binary {
             url,
             sha256: "ab".repeat(32),
@@ -230,6 +258,86 @@ mod tests {
             Err(RenewError::DownloadFailed)
         ));
         assert_eq!(std::fs::read(&exe).unwrap(), b"old binary");
+    }
+
+    #[test]
+    fn a_plain_http_binary_url_off_this_machine_is_refused_before_anything_is_staged() {
+        let dir = scratch();
+        let exe = dir.path().join("pito-work");
+        std::fs::write(&exe, b"old binary").unwrap();
+        let binary = Binary {
+            url: String::from("http://example.com/app"),
+            sha256: "ab".repeat(32),
+            size: 4,
+        };
+
+        assert!(matches!(
+            install(&binary, &exe),
+            Err(RenewError::InsecureUrl)
+        ));
+        assert_eq!(std::fs::read(&exe).unwrap(), b"old binary");
+        assert!(!staging_path(&exe).exists());
+    }
+
+    #[test]
+    fn an_install_already_in_flight_is_refused_and_its_staging_file_is_left_alone() {
+        let dir = scratch();
+        let exe = dir.path().join("pito-work");
+        std::fs::write(&exe, b"old binary").unwrap();
+        std::fs::write(staging_path(&exe), b"in flight").unwrap();
+        let body = b"the new binary bytes".to_vec();
+        let url = serve_once(body.clone());
+        let binary = binary_for(&body, url);
+
+        let outcome = install(&binary, &exe);
+
+        assert!(matches!(outcome, Err(RenewError::StageFailed { .. })));
+        assert_eq!(std::fs::read(&exe).unwrap(), b"old binary");
+        assert_eq!(std::fs::read(staging_path(&exe)).unwrap(), b"in flight");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_staging_symlink_is_refused_and_its_target_is_never_written() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch();
+        let exe = dir.path().join("pito-work");
+        std::fs::write(&exe, b"old binary").unwrap();
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, b"victim bytes").unwrap();
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&victim, staging_path(&exe)).unwrap();
+        let body = b"the new binary bytes".to_vec();
+        let url = serve_once(body.clone());
+        let binary = binary_for(&body, url);
+
+        let outcome = install(&binary, &exe);
+
+        assert!(matches!(outcome, Err(RenewError::StageFailed { .. })));
+        assert_eq!(std::fs::read(&victim).unwrap(), b"victim bytes");
+        let mode = std::fs::metadata(&victim).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert_eq!(std::fs::read(&exe).unwrap(), b"old binary");
+        assert!(
+            std::fs::symlink_metadata(&exe)
+                .unwrap()
+                .file_type()
+                .is_file()
+        );
+    }
+
+    #[test]
+    fn sibling_binaries_with_one_stem_get_their_own_staging_and_old_paths() {
+        let app = Path::new("bin").join("app");
+        let v2 = Path::new("bin").join("app.v2");
+
+        assert_eq!(staging_path(&v2), Path::new("bin").join("app.v2.staging"));
+        assert_ne!(staging_path(&v2), staging_path(&app));
+        assert_ne!(old_path(&v2), old_path(&app));
+        assert_eq!(
+            staging_path(Path::new("app.exe")),
+            Path::new("app.exe.staging")
+        );
     }
 
     #[test]

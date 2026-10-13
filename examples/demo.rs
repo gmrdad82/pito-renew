@@ -6,7 +6,7 @@ use renew::{Check, platform_key};
 const CURRENT: &str = "1.0.0";
 const LATEST: &str = "1.1.0";
 
-fn serve(published: &[u8], served: Vec<u8>) -> String {
+fn serve(keys: &minisign::KeyPair, published: &[u8], served: Vec<u8>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let manifest = format!(
@@ -15,6 +15,9 @@ fn serve(published: &[u8], served: Vec<u8>) -> String {
         sha = fetch::sha256_hex(published),
         size = published.len(),
     );
+    let signature = minisign::sign(Some(&keys.pk), &keys.sk, manifest.as_bytes(), None, None)
+        .unwrap()
+        .into_string();
     std::thread::spawn(move || {
         for socket in listener.incoming() {
             let Ok(mut socket) = socket else { continue };
@@ -23,6 +26,8 @@ fn serve(published: &[u8], served: Vec<u8>) -> String {
             let request = String::from_utf8_lossy(&head[..got]);
             let body: &[u8] = if request.starts_with("GET /manifest.json ") {
                 manifest.as_bytes()
+            } else if request.starts_with("GET /manifest.json.minisig ") {
+                signature.as_bytes()
             } else {
                 &served
             };
@@ -45,7 +50,8 @@ fn main() {
     } else {
         published.clone()
     };
-    let base = serve(&published, served);
+    let keys = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+    let base = serve(&keys, &published, served);
 
     let dir = tempfile::tempdir().unwrap();
     let exe = dir.path().join("app");
@@ -56,7 +62,11 @@ fn main() {
     };
     println!("running   app {CURRENT} on {platform}");
 
-    let binary = match renew::check(&format!("{base}/manifest.json"), CURRENT) {
+    let binary = match renew::check(
+        &format!("{base}/manifest.json"),
+        &keys.pk.to_base64(),
+        CURRENT,
+    ) {
         Ok(Check::Available { version, binary }) => {
             println!("check     {version} is out, {} bytes", binary.size);
             binary

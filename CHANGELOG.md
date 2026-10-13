@@ -5,6 +5,12 @@
 ### Changed
 
 - The brand now reads PITO MD.
+- Breaking: the release manifest must be signed with minisign, and `check` takes the app's public key; an unsigned or mis-signed manifest is refused before it is read.
+- Plain http is refused for the manifest and the binary, redirects included, except to this machine.
+- `install` creates its staging file itself, mode 0755, and refuses when one already exists, so it never writes through a planted link or into another install's download.
+- The staging and old files are named after the whole executable name, so `app` and `app.v2` in one folder no longer share them.
+- Build metadata no longer makes a version newer, so `1.2.0+rebuild` doesn't reinstall over `1.2.0`.
+- A sha256 that isn't 64 hex digits is refused before anything downloads.
 
 ## v0.1.2 — 2026-10-12
 

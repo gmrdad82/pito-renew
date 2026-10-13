@@ -6,7 +6,8 @@
 [![Version](https://img.shields.io/github/v/tag/gmrdad82/pito-renew)](https://github.com/gmrdad82/pito-renew/tags)
 
 Self-update for a Rust app, as a small crate, `renew`. It fetches a release
-manifest, picks this platform's binary, streams it to disk under a size cap
+manifest, refuses it unless its minisign signature verifies against the app's
+public key, picks this platform's binary, streams it to disk under a size cap
 while hashing it, refuses it unless its size and sha256 match the manifest,
 swaps it in place of the running executable and relaunches it. The app keeps
 its own ceremony around the update, such as a backup first, and picks its own
@@ -26,11 +27,13 @@ renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "v0.1.2" }
 ```
 
 It uses [ureq](https://crates.io/crates/ureq) with rustls for HTTP, so it
-needs no system TLS library.
+needs no system TLS library, and
+[minisign-verify](https://crates.io/crates/minisign-verify) to check the
+manifest's signature.
 
 ## Use
 
-Serve a manifest over HTTPS from a host you control:
+Write a manifest:
 
 ```json
 {
@@ -44,7 +47,15 @@ Serve a manifest over HTTPS from a host you control:
 
 The platform keys are `linux-x86_64`, `macos-arm64` and `windows-x86_64`;
 `renew::platform_key()` gives this build's key, or an empty string on any
-other platform. Each `url` points to the raw executable, not an archive.
+other platform. Each `url` points to the raw executable, not an archive, and
+each `sha256` is its 64 hex digits.
+
+Sign it with [minisign](https://jedisct1.github.io/minisign/). Make a key pair
+once with `minisign -G`, and keep the secret key off the server that hosts
+the releases. For each release, `minisign -Sm manifest.json` writes
+`manifest.json.minisig` next to the manifest; serve both over HTTPS, the
+signature at the manifest's URL with `.minisig` appended. The app carries the
+public key, the second line of `minisign.pub` (it starts with `RW`).
 
 Then, in the app:
 
@@ -53,10 +64,16 @@ use std::error::Error;
 
 use renew::Check;
 
+const RELEASE_KEY: &str = "RWQ…";
+
 fn update() -> Result<(), Box<dyn Error>> {
     let exe = std::env::current_exe()?;
     renew::clean_old_binary(&exe);
-    match renew::check("https://example.com/app/manifest.json", env!("CARGO_PKG_VERSION"))? {
+    match renew::check(
+        "https://example.com/app/manifest.json",
+        RELEASE_KEY,
+        env!("CARGO_PKG_VERSION"),
+    )? {
         Check::Current => Ok(()),
         Check::Available { version, binary } => {
             println!("installing {version}");
@@ -68,24 +85,33 @@ fn update() -> Result<(), Box<dyn Error>> {
 }
 ```
 
-- `check(url, current)` fetches the manifest (3 s timeout, at most 1 MiB)
-  and compares its version with the running one by semver. It answers
-  `Check::Current`, or `Check::Available` with the new version and this
-  platform's binary, and refuses a published size of 0 or over 512 MiB.
-- `install(&binary, &exe)` downloads to `<exe>.staging` (180 s timeout),
-  stops as soon as more bytes
-  arrive than were published, checks the exact size and the sha256, makes the
-  file executable and renames it over `exe`. On any failure the staging file
-  is removed and the old binary stays where it was.
+- `check(url, public_key, current)` fetches the manifest (at most 1 MiB) and
+  its `.minisig` (at most 4 KiB), each with a 3 s timeout, and verifies the
+  signature over the exact manifest bytes before it reads them. It refuses an
+  unsigned or mis-signed manifest, plain http to any host but this machine,
+  a sha256 that isn't 64 hex digits, and a published size of 0 or over
+  512 MiB. It compares the signed version with the running one by semver,
+  ignoring build metadata, and answers `Check::Current`, or
+  `Check::Available` with the new version and this platform's binary. An
+  older or equal signed manifest replayed by the host is `Check::Current`.
+- `install(&binary, &exe)` downloads over HTTPS (plain http only to this
+  machine) to `<exe>.staging` (180 s timeout), which it creates itself, mode
+  0755, and never through an existing file or link: when `<exe>.staging`
+  already exists, another install is in flight or one was cut short, and it
+  refuses. It stops as soon as more bytes arrive than were published, checks
+  the exact size and the sha256, and renames the file over `exe`. On any
+  failure the staging file it made is removed and the old binary stays where
+  it was.
 - `restart(&exe)` spawns the new binary detached, with no stdin, stdout or
   stderr; the app exits after it.
 - `clean_old_binary(&exe)` sweeps a leftover `<exe>.staging` or `<exe>.old`;
   call it at start-up.
 
 Every failure is a `RenewError` naming what went wrong: the manifest
-unreachable or malformed, no binary for this platform, a failed download, a
-bad version string, or a staging, verification or swap error. `renew` trusts
-the manifest it is given, so serve it over HTTPS.
+unreachable (its signature missing included) or malformed, a public key that
+isn't a minisign key, a signature that doesn't verify, a plain http URL, no
+binary for this platform, a failed download, a bad version string, or a
+staging, verification or swap error.
 
 ## Try it
 
@@ -94,8 +120,9 @@ cargo run --example demo
 cargo run --example demo -- --tampered
 ```
 
-The demo is the clip above. It serves a manifest and a binary from a local
-port, then updates an app at 1.0.0 in a temporary folder to 1.1.0. With
+The demo is the clip above. It makes a key pair, signs a manifest, serves it
+with its signature and a binary from a local port, then updates an app at
+1.0.0 in a temporary folder to 1.1.0. With
 `--tampered` the server sends other bytes of the same size: the checksum
 doesn't match, the install is refused and the old binary stays. Its recording
 is kept in `render/`.
@@ -114,9 +141,10 @@ their downloads from a local port and write their scratch files under
 
 Issues and pull requests are welcome. Please read the
 [code of conduct](CODE_OF_CONDUCT.md) first. A change keeps `bin/gate` green
-with no warnings, and never lets a binary run or stay in place unless its
-size and sha256 match the manifest. Report a security issue privately, as
-[SECURITY.md](SECURITY.md) says, not in a public issue.
+with no warnings, and never lets a binary run or stay in place unless the
+manifest's signature verifies and the binary's size and sha256 match it.
+Report a security issue privately, as [SECURITY.md](SECURITY.md) says, not in
+a public issue.
 
 ## Licence
 

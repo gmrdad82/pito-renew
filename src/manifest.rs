@@ -1,14 +1,18 @@
 use std::collections::HashMap;
-use std::time::Duration;
+use std::io::Read;
 
+use minisign_verify::{PublicKey, Signature};
 use serde::Deserialize;
 
-use crate::{MAX_BINARY_BYTES, RenewError};
+use crate::{MANIFEST_TIMEOUT, MAX_BINARY_BYTES, RenewError};
+
+const MANIFEST_BYTES: u64 = 1024 * 1024;
+const SIGNATURE_BYTES: u64 = 4 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Manifest {
-    pub version: String,
-    pub platforms: HashMap<String, Binary>,
+pub(crate) struct Manifest {
+    version: String,
+    platforms: HashMap<String, Binary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -34,18 +38,35 @@ pub fn platform_key() -> &'static str {
 }
 
 impl Manifest {
-    pub fn parse(raw: &[u8]) -> Result<Self, RenewError> {
+    pub(crate) fn verify(
+        raw: &[u8],
+        signature: &[u8],
+        public_key: &PublicKey,
+    ) -> Result<Self, RenewError> {
+        let signature = std::str::from_utf8(signature)
+            .ok()
+            .and_then(|text| Signature::decode(text).ok())
+            .ok_or(RenewError::BadSignature)?;
+        public_key
+            .verify(raw, &signature, false)
+            .map_err(|_| RenewError::BadSignature)?;
+        Self::parse(raw)
+    }
+
+    fn parse(raw: &[u8]) -> Result<Self, RenewError> {
         serde_json::from_slice(raw).map_err(|_| RenewError::ManifestMalformed)
     }
 
-    pub fn check_against(&self, current_version: &str) -> Result<Check, RenewError> {
-        let current: semver::Version = current_version
+    pub(crate) fn check_against(&self, current_version: &str) -> Result<Check, RenewError> {
+        let mut current: semver::Version = current_version
             .parse()
             .map_err(|_| RenewError::BadVersion)?;
-        let latest: semver::Version = self
+        let mut latest: semver::Version = self
             .version
             .parse()
             .map_err(|_| RenewError::ManifestMalformed)?;
+        current.build = semver::BuildMetadata::EMPTY;
+        latest.build = semver::BuildMetadata::EMPTY;
         if latest <= current {
             return Ok(Check::Current);
         }
@@ -53,6 +74,9 @@ impl Manifest {
             .platforms
             .get(platform_key())
             .ok_or(RenewError::NoPlatformBinary)?;
+        if binary.sha256.len() != 64 || !binary.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(RenewError::ManifestMalformed);
+        }
         if binary.size == 0 || binary.size > MAX_BINARY_BYTES {
             return Err(RenewError::VerifyFailed {
                 detail: format!("published size {} is outside the sane band", binary.size),
@@ -65,39 +89,41 @@ impl Manifest {
     }
 }
 
-pub(crate) fn fetch_manifest(url: &str, timeout: Duration) -> Result<Manifest, RenewError> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(timeout))
-        .http_status_as_error(false)
-        .build()
-        .into();
-    let response = agent
-        .get(url)
-        .call()
-        .map_err(|_| RenewError::ManifestUnreachable)?;
-    if !response.status().is_success() {
-        return Err(RenewError::ManifestUnreachable);
-    }
+pub(crate) fn public_key(base64: &str) -> Result<PublicKey, RenewError> {
+    PublicKey::from_base64(base64.trim()).map_err(|_| RenewError::BadPublicKey)
+}
+
+pub(crate) fn fetch_manifest(url: &str, public_key: &PublicKey) -> Result<Manifest, RenewError> {
+    let raw = fetch_capped(url, MANIFEST_BYTES)?;
+    let signature = fetch_capped(&format!("{url}.minisig"), SIGNATURE_BYTES)?;
+    Manifest::verify(&raw, &signature, public_key)
+}
+
+fn fetch_capped(url: &str, cap: u64) -> Result<Vec<u8>, RenewError> {
+    let response = crate::get(url, MANIFEST_TIMEOUT, RenewError::ManifestUnreachable)?;
     let mut raw = Vec::new();
-    use std::io::Read;
     response
         .into_body()
         .into_reader()
-        .take(1024 * 1024)
+        .take(cap)
         .read_to_end(&mut raw)
         .map_err(|_| RenewError::ManifestUnreachable)?;
-    Manifest::parse(&raw)
+    Ok(raw)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn manifest(version: &str, key: &str, size: u64) -> Manifest {
+    fn manifest_with(version: &str, key: &str, sha256: &str, size: u64) -> Manifest {
         let raw = format!(
-            r#"{{"version":"{version}","platforms":{{"{key}":{{"url":"https://example.invalid/work","sha256":"ab","size":{size}}}}}}}"#
+            r#"{{"version":"{version}","platforms":{{"{key}":{{"url":"https://example.invalid/work","sha256":"{sha256}","size":{size}}}}}}}"#
         );
         Manifest::parse(raw.as_bytes()).unwrap()
+    }
+
+    fn manifest(version: &str, key: &str, size: u64) -> Manifest {
+        manifest_with(version, key, &"ab".repeat(32), size)
     }
 
     #[test]
@@ -112,26 +138,22 @@ mod tests {
     }
 
     #[test]
-    fn a_newer_version_with_a_platform_binary_is_available() {
-        let check = manifest("1.2.0", platform_key(), 100)
-            .check_against("1.1.0")
-            .unwrap();
-        match check {
-            Check::Available { version, binary } => {
-                assert_eq!(version, "1.2.0");
-                assert_eq!(binary.size, 100);
-            }
-            Check::Current => panic!("a newer version must be Available"),
-        }
-    }
-
-    #[test]
     fn the_same_or_an_older_version_is_current() {
         for published in ["1.1.0", "1.0.9", "0.9.0"] {
             let check = manifest(published, platform_key(), 100)
                 .check_against("1.1.0")
                 .unwrap();
             assert_eq!(check, Check::Current, "published {published}");
+        }
+    }
+
+    #[test]
+    fn build_metadata_never_makes_a_version_newer() {
+        for (published, running) in [("1.2.0+rebuild", "1.2.0"), ("1.2.0", "1.2.0+local")] {
+            let check = manifest(published, platform_key(), 100)
+                .check_against(running)
+                .unwrap();
+            assert_eq!(check, Check::Current, "{published} against {running}");
         }
     }
 
@@ -154,6 +176,22 @@ mod tests {
         for size in [0, MAX_BINARY_BYTES + 1] {
             let outcome = manifest("2.0.0", platform_key(), size).check_against("1.0.0");
             assert!(matches!(outcome, Err(RenewError::VerifyFailed { .. })));
+        }
+    }
+
+    #[test]
+    fn a_sha256_that_is_not_64_hex_digits_is_a_malformed_manifest() {
+        for sha256 in [
+            "a".repeat(63),
+            "a".repeat(65),
+            format!("{}g", "a".repeat(63)),
+        ] {
+            let outcome =
+                manifest_with("2.0.0", platform_key(), &sha256, 100).check_against("1.0.0");
+            assert!(
+                matches!(outcome, Err(RenewError::ManifestMalformed)),
+                "sha256 {sha256}"
+            );
         }
     }
 
