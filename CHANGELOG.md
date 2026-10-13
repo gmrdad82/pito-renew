@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 — 2026-10-13
 
 ### Added
 
@@ -10,7 +10,6 @@
 ### Changed
 
 - Breaking: `check` answers a `Check` with `update` and `new_major`, each a `Release` or none, in place of `Current` and `Available`.
-
 - The brand now reads PITO MD.
 - Breaking: the release manifest must be signed with minisign, and `check` takes the app's public key; an unsigned or mis-signed manifest is refused before it is read.
 - Plain http is refused for the manifest and the binary, redirects included, except to this machine.
