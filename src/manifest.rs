@@ -78,19 +78,26 @@ impl Manifest {
             let version = stripped(&entry.version).ok_or(RenewError::ManifestMalformed)?;
             entries.push((version, entry));
         }
-        let newest = |in_line: fn(&semver::Version, &semver::Version) -> bool| {
-            entries
-                .iter()
-                .filter(|(version, _)| in_line(version, &current))
-                .max_by(|a, b| a.0.cmp(&b.0))
-                .map(|(_, entry)| *entry)
-        };
-        let update = newest(|version, current| version.major == current.major && version > current)
-            .map(Entry::release)
+        entries.sort_by(|a, b| b.0.cmp(&a.0));
+        let new_major = entries
+            .iter()
+            .filter(|(version, _)| version.major > current.major)
+            .find_map(|(_, entry)| entry.release().ok());
+        if new_major.is_some() {
+            return Ok(Check {
+                update: new_major.clone(),
+                new_major,
+            });
+        }
+        let update = entries
+            .iter()
+            .find(|(version, _)| version.major == current.major && *version > current)
+            .map(|(_, entry)| entry.release())
             .transpose()?;
-        let new_major = newest(|version, current| version.major > current.major)
-            .and_then(|entry| entry.release().ok());
-        Ok(Check { update, new_major })
+        Ok(Check {
+            update,
+            new_major: None,
+        })
     }
 }
 
@@ -192,15 +199,15 @@ mod tests {
     }
 
     #[test]
-    fn updates_stay_inside_the_running_major_and_a_later_major_is_only_offered() {
+    fn the_update_crosses_majors_and_new_major_names_the_crossing() {
         let manifest = lines("2.0.0", &["1.5.0", "1.5.1", "1.4.3", "0.9.9"]);
         for (running, update, new_major) in [
-            ("1.4.2", Some("1.5.1"), Some("2.0.0")),
-            ("1.5.0", Some("1.5.1"), Some("2.0.0")),
-            ("1.5.1", None, Some("2.0.0")),
-            ("1.0.0-rc.3", Some("1.5.1"), Some("2.0.0")),
+            ("1.4.2", Some("2.0.0"), Some("2.0.0")),
+            ("1.5.1", Some("2.0.0"), Some("2.0.0")),
+            ("1.0.0-rc.3", Some("2.0.0"), Some("2.0.0")),
+            ("2.0.0-rc.1", Some("2.0.0"), None),
             ("2.0.0", None, None),
-            ("0.9.0", Some("0.9.9"), Some("2.0.0")),
+            ("0.9.0", Some("2.0.0"), Some("2.0.0")),
         ] {
             let check = manifest.check_against(running).unwrap();
             assert_eq!(versions(&check), (update, new_major), "running {running}");
@@ -208,16 +215,16 @@ mod tests {
     }
 
     #[test]
-    fn the_newest_of_several_later_majors_is_the_offer_and_its_binary_rides_along() {
+    fn the_newest_of_several_later_majors_is_the_update_and_its_binary_rides_along() {
         let check = lines("3.1.0", &["2.4.0", "3.0.2"])
             .check_against("1.2.0")
             .unwrap();
-        assert_eq!(versions(&check), (None, Some("3.1.0")));
-        assert_eq!(check.new_major.unwrap().binary.size, 100);
+        assert_eq!(versions(&check), (Some("3.1.0"), Some("3.1.0")));
+        assert_eq!(check.update.unwrap().binary.size, 100);
     }
 
     #[test]
-    fn a_later_major_without_this_platform_is_not_offered_and_never_blocks_the_update() {
+    fn a_later_major_without_this_platform_falls_back_to_the_running_majors_update() {
         let raw = format!(
             r#"{{{},"releases":[{{{}}}]}}"#,
             entry("2.0.0", "definitely-not-this-platform"),

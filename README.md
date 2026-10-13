@@ -23,7 +23,7 @@ also builds for native Windows, where the swap parks the running binary as
 It isn't on crates.io; add it from git, pinned to a release tag:
 
 ```toml
-renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "v0.2.0" }
+renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "v0.2.1" }
 ```
 
 It uses [ureq](https://crates.io/crates/ureq) with rustls for HTTP, so it
@@ -45,10 +45,11 @@ Write a manifest:
 }
 ```
 
-The top-level `version` and `platforms` are the newest release. Updates stay
-inside the running app's major version: an app at 1.4.2 takes 1.5.0 or
-1.5.1, never 2.0.0 by itself. To keep an older major updated after a new one
-ships, list the newest release of each older major under `releases`:
+The top-level `version` and `platforms` are the newest release. Updates
+cross major versions: an app at 1.4.2 takes 2.0.0 like any other update. If
+a new major ships without a binary for some platform, list the newest release
+of each older major under `releases`, so apps on that platform keep getting
+that major's updates:
 
 ```json
 {
@@ -89,12 +90,12 @@ fn update() -> Result<(), Box<dyn Error>> {
         RELEASE_KEY,
         env!("CARGO_PKG_VERSION"),
     )?;
-    if let Some(offer) = new_major {
-        println!("{} is out, a new version to get", offer.version);
-    }
     let Some(update) = update else {
         return Ok(());
     };
+    if new_major.is_some() {
+        println!("{} is a new major version", update.version);
+    }
     println!("installing {}", update.version);
     renew::install(&update.binary, &exe)?;
     renew::restart(&exe)?;
@@ -110,10 +111,11 @@ fn update() -> Result<(), Box<dyn Error>> {
   512 MiB. It compares every signed version with the running one by semver,
   ignoring build metadata, and answers a `Check` with two fields, each a
   `Release` (the version and this platform's binary) or `None`: `update`, the
-  newest release newer than the running one inside its major, patches
-  included, and `new_major`, the newest release of a later major, offered and
-  never installed by itself (the app may `install` its binary once the user
-  has it). A later major with no binary for this platform isn't offered. An
+  newest release newer than the running one, whatever its major, and
+  `new_major`, the same release when it is a later major than the running
+  one, so the app can tell the user. A later major with no binary for this
+  platform is skipped, and `update` falls back to the newest release of the
+  running major. An
   older or equal signed manifest replayed by the host has no `update`. It
   keeps no state, so the app calls it on its own schedule and whenever the
   user asks to check for updates.
