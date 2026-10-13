@@ -10,7 +10,7 @@ manifest, picks this platform's binary, streams it to disk under a size cap
 while hashing it, refuses it unless its size and sha256 match the manifest,
 swaps it in place of the running executable and relaunches it. The app keeps
 its own ceremony around the update, such as a backup first, and picks its own
-moment to restart. It is the self-update of the [PITO](https://pitomd.com)
+moment to restart. It is the self-update of the [PITO MD](https://pitomd.com)
 apps.
 
 Works on Linux and macOS (Windows through WSL), CI-tested on both. The crate
@@ -121,6 +121,6 @@ size and sha256 match the manifest. Report a security issue privately, as
 ## Licence
 
 The code is MIT licensed, © Catalin Ilinca: see [LICENSE](LICENSE). The MIT
-grant covers the code only: the PITO name and its logos are © Catalin Ilinca,
+grant covers the code only: the PITO MD name and its logos are © Catalin Ilinca,
 all rights reserved, and are not covered by it; see
 [TRADEMARKS.md](TRADEMARKS.md).
