@@ -61,8 +61,10 @@ HTTPS: ureq, rustls and its crypto. A cold release build of the second took
 
 ## Lines and dependencies
 
-- **378 lines** of library code: `src/` without its tests, no `unsafe`.
-- **7** direct dependencies and 44 in all: `cargo tree -e normal`. HTTP is
+- **727 lines** of library code: `src/` without its tests; `unsafe` only
+  to call `access` and `renamex_np` on macOS.
+- **7** direct dependencies (and libc on macOS) and 44 in all:
+  `cargo tree -e normal` on Linux. HTTP is
   [ureq](https://crates.io/crates/ureq) with rustls, the signature check is
   [minisign-verify](https://crates.io/crates/minisign-verify), and the
   streaming sha256 is [pito-fetch](https://docs.pitomd.com/pito-fetch/)'s.

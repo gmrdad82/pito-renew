@@ -16,8 +16,8 @@ carries and the binary's size and sha256 match what was signed.
 |---|---|
 | Check for an update | **0.47 ms** on loopback, signature verified |
 | Download, verify and swap 64 MiB | **193 ms** on loopback, 1.2× faster than `curl` then `sha256sum` |
-| Library code | **378 lines** of Rust, no `unsafe` |
-| Dependencies | **7** direct, 44 in all, no system TLS library |
+| Library code | **727 lines** of Rust, `unsafe` only for two macOS system calls |
+| Dependencies | **7** direct (and libc on macOS), 44 in all, no system TLS library |
 | Added to a stripped release binary | **1.86 MiB**, HTTPS included |
 
 [How each number was measured](#how-it-measures). Works on Linux and macOS
@@ -74,6 +74,21 @@ can exit. The app keeps its own ceremony around it, such as a backup first,
 and picks its own moment. It keeps no state: call `check` as often as you
 like.
 
+### Updates a macOS app bundle whole
+
+A notarised `.app` can't take a new executable alone: its signature seals the
+bundle's `Info.plist`, so Gatekeeper would call it damaged. When the
+executable runs from `<Name>.app/Contents/MacOS/`, `install` takes the whole
+bundle instead, from the manifest's `platforms.macos-arm64.app` (a
+`ditto -c -k --keepParent` zip): it checks the zip's size and sha256, unpacks
+it beside the running bundle, refuses it unless `codesign --verify --deep
+--strict` passes and its Team ID and identifier match the running app's, then
+swaps the two bundles in one step and keeps the old one as `<bundle>.old`
+until the next start. `restart` opens the new bundle. An app this user can't
+write, such as one owned by root in `/Applications`, answers that it can't
+update itself before downloading anything. Tested only on GitHub's macOS
+runners, without a notarised bundle.
+
 ### Refuses a manifest it didn't sign
 
 <p align="center"><img src="docs/images/forged.gif" alt="demo --forged: the manifest is signed by a key the app doesn't carry; check answers that the release manifest's signature does not verify, and the app stays at 1.0.0"></p>
@@ -118,7 +133,7 @@ costs no extra pass. A `check` is two small requests and one signature check:
 
 <p align="center"><img src="docs/images/size-bars.png" alt="Bars: an app that prints its version is 299 KiB stripped; with renew it is 2202 KiB, HTTPS included"></p>
 
-378 lines of library code and seven direct dependencies: HTTP is
+727 lines of library code and seven direct dependencies: HTTP is
 [ureq](https://crates.io/crates/ureq) with rustls, so it needs no system TLS
 library, the signature check is
 [minisign-verify](https://crates.io/crates/minisign-verify), and the
@@ -154,7 +169,15 @@ major's updates:
 The platform keys are `linux-x86_64`, `macos-arm64` and `windows-x86_64`;
 `renew::platform_key()` gives this build's key, or an empty string on any
 other platform. Each `url` points to the raw executable, not an archive, and
-each `sha256` is its 64 hex digits.
+each `sha256` is its 64 hex digits. An app that runs from a macOS `.app`
+bundle also gets the whole bundle, zipped, under `app`:
+
+```json
+"macos-arm64": {
+  "url": "https://example.com/app/1.1.0/app-macos-arm64", "sha256": "…", "size": 9437184,
+  "app": { "url": "https://example.com/app/1.1.0/App.app.zip", "sha256": "…", "size": 12582912 }
+}
+```
 
 Sign it with minisign. Make a key pair once with `minisign -G`, and keep the
 secret key off the server that hosts the releases. For each release,
@@ -202,17 +225,20 @@ fn update() -> Result<(), Box<dyn Error>> {
 - `install(&binary, &exe)` downloads over HTTPS (plain http only to this
   machine) to `<exe>.staging` (180 s timeout), created by it with mode 0755,
   checks the size and the sha256, and renames the file over `exe`. On any
-  failure the staging file it made is removed and the old binary stays.
+  failure the staging file it made is removed and the old binary stays. When
+  `exe` runs from a macOS `.app` bundle it installs the whole bundle instead,
+  as above.
 - `restart(&exe)` spawns the new binary detached, with no stdin, stdout or
-  stderr; the app exits after it.
-- `clean_old_binary(&exe)` sweeps a leftover `<exe>.staging` or `<exe>.old`;
-  call it at start-up.
+  stderr, or opens the new bundle on macOS; the app exits after it.
+- `clean_old_binary(&exe)` sweeps a leftover `<exe>.staging` or `<exe>.old`,
+  and a bundle's `<bundle>.staging` or `<bundle>.old`; call it at start-up.
 
 Every failure is a `RenewError` naming what went wrong: the manifest
 unreachable (its signature missing included) or malformed, a public key that
 isn't a minisign key, a signature that doesn't verify, a plain http URL, no
-binary for this platform, a failed download, a bad version string, or a
-staging, verification or swap error.
+binary for this platform, a failed download, a bad version string, a
+staging, verification or swap error, a macOS bundle with no bundle published
+for it, or an app folder this user can't write.
 
 The crate also builds for native Windows, where the swap parks the running
 binary as `<exe>.old` first; CI doesn't run that path, so it is untested.

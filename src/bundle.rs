@@ -52,13 +52,25 @@ pub(crate) fn identity(codesign_display: &str) -> Option<Identity> {
             .lines()
             .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
             .map(str::trim)
-            .filter(|value| !value.is_empty() && *value != "not set")
+            .filter(|value| {
+                !value.is_empty()
+                    && value
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            })
             .map(str::to_string)
     };
     Some(Identity {
         identifier: field("Identifier")?,
         team: field("TeamIdentifier")?,
     })
+}
+
+pub(crate) fn requirement(running: &Identity) -> String {
+    format!(
+        "=anchor apple generic and identifier \"{}\" and certificate leaf[subject.OU] = \"{}\"",
+        running.identifier, running.team
+    )
 }
 
 pub(crate) fn same_signer(running: &Identity, found: &Identity) -> Result<(), RenewError> {
@@ -93,7 +105,7 @@ mod macos {
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
 
-    use super::{Identity, identity, same_signer, the_app_in};
+    use super::{Identity, identity, requirement, same_signer, the_app_in};
     use crate::engine::beside;
     use crate::manifest::{AppBundle, Binary};
     use crate::{DOWNLOAD_TIMEOUT, RenewError};
@@ -132,7 +144,7 @@ mod macos {
             .create(&staging)
             .map_err(|source| RenewError::StageFailed { source })?;
         let outcome = stage_and_swap(app, bundle, &staging, running);
-        if outcome.is_err() {
+        if outcome.is_err() && bundle.exists() {
             let _ = std::fs::remove_dir_all(&staging);
         }
         outcome
@@ -171,13 +183,14 @@ mod macos {
         )?;
         let _ = std::fs::remove_file(&zip);
         let new = the_app_in(&unpacked)?;
+        same_signer(running, &signed_by(&new)?)?;
         run(
             Command::new(CODESIGN)
-                .args(["--verify", "--deep", "--strict"])
+                .args(["--verify", "--deep", "--strict", "-R"])
+                .arg(requirement(running))
                 .arg(&new),
             "the new bundle's code signature does not verify",
         )?;
-        same_signer(running, &signed_by(&new)?)?;
         prepare(&new);
         swap(bundle, &new)?;
         if let Some(parent) = bundle.parent()
@@ -363,6 +376,11 @@ mod tests {
         let running = identity(&display("com.pitomd.splicer", "AB12CD34EF")).unwrap();
         assert!(identity(&display("com.pitomd.splicer", "not set")).is_none());
         assert!(identity("Identifier=com.pitomd.splicer\n").is_none());
+        assert!(identity(&display("com.pitomd.splicer\" or true", "AB12CD34EF")).is_none());
+        assert_eq!(
+            requirement(&running),
+            "=anchor apple generic and identifier \"com.pitomd.splicer\" and certificate leaf[subject.OU] = \"AB12CD34EF\""
+        );
         assert!(same_signer(&running, &running.clone()).is_ok());
         for (identifier, team) in [
             ("com.pitomd.splicer", "ZZ99ZZ99ZZ"),

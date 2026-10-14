@@ -66,6 +66,25 @@ where it was.
 `restart(&exe)` spawns the new binary detached, with no stdin, stdout or
 stderr; the app exits after it.
 
+### A macOS app bundle
+
+When `exe` runs from a `.app` bundle (`<Name>.app/Contents/MacOS/<exe>`), the
+same two calls update the whole bundle, because a new executable inside a
+signed, notarised bundle breaks its signature. Publish the bundle zipped under
+`platforms.macos-arm64.app` ([Sign and publish](../sign-and-publish/)), and
+`install` downloads and checks the zip, unpacks it beside the running bundle,
+refuses it unless its code signature verifies and its Team ID and identifier
+match the running app's, and swaps the bundles in one step. The running
+process carries on from the old bundle, kept as `<bundle>.old` until the next
+`clean_old_binary`; `restart` opens the new one with `open -n`.
+
+If the user can't write the bundle or its folder, such as an app owned by
+root in `/Applications` or one run from a disk image, `install` answers
+`NotWritable` before downloading anything: show that the app can't update
+itself there. [Formats](../../reference/formats/#the-app-bundle-on-macos)
+lists every step. This path is tested only on GitHub's macOS runners, without
+a notarised bundle.
+
 The app keeps its own ceremony around these calls (a backup first, a prompt
 to the user, a quiet moment to swap) and picks when to make them.
 
@@ -86,6 +105,8 @@ Every failure is a `RenewError` whose message names what went wrong:
 | `VerifyFailed` | the downloaded binary failed verification: … |
 | `InsecureUrl` | refused a plain http url: only https, or http to this machine, is fetched |
 | `SwapFailed` | the new binary could not be swapped in: … |
+| `NoAppBundle` | this app runs from a macOS .app bundle and no bundle is published for it |
+| `NotWritable` | … is not writable by this user, so the app can't update itself |
 
 A missing `.minisig` counts as `ManifestUnreachable`. None of them leaves a
 new binary in place: an app can show the message and carry on at its current
@@ -120,4 +141,5 @@ fn update() -> Result<(), Box<dyn Error>> {
 ```
 
 The [API reference](../../api/renew/index.html) lists every public item,
-including `platform_key()`, `staging_path()` and the timeout constants.
+including `platform_key()`, `staging_path()`, `AppBundle` and the timeout
+and size constants.

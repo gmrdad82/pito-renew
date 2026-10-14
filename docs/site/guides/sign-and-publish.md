@@ -36,6 +36,16 @@ shasum -a 256 app-macos-arm64       # macOS
 stat -f %z app-macos-arm64
 ```
 
+An app that runs from a macOS `.app` bundle also publishes the bundle, after
+it is signed, notarised and stapled, zipped with `ditto` so its signature,
+links and extended attributes survive:
+
+```sh
+ditto -c -k --keepParent App.app App-macos-arm64.app.zip
+shasum -a 256 App-macos-arm64.app.zip
+stat -f %z App-macos-arm64.app.zip
+```
+
 ## 3. Write the manifest
 
 ```json
@@ -43,14 +53,18 @@ stat -f %z app-macos-arm64
   "version": "1.1.0",
   "platforms": {
     "linux-x86_64": { "url": "https://example.com/app/1.1.0/app-linux-x86_64", "sha256": "…", "size": 10485760 },
-    "macos-arm64": { "url": "https://example.com/app/1.1.0/app-macos-arm64", "sha256": "…", "size": 9437184 }
+    "macos-arm64": {
+      "url": "https://example.com/app/1.1.0/app-macos-arm64", "sha256": "…", "size": 9437184,
+      "app": { "url": "https://example.com/app/1.1.0/App-macos-arm64.app.zip", "sha256": "…", "size": 12582912 }
+    }
   }
 }
 ```
 
 The platform keys are `linux-x86_64`, `macos-arm64` and `windows-x86_64`;
 `renew::platform_key()` gives the running build's key. Each `sha256` is 64
-hex digits and each `size` is above 0 and at most 512 MiB.
+hex digits and each `size` is above 0 and at most 512 MiB, or 1 GiB for an
+`app` zip.
 [Formats](../../reference/formats/) has every field and limit.
 
 ## 4. Sign it and serve both files

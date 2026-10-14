@@ -60,7 +60,7 @@ Before reading the manifest, `check` refuses:
 Before downloading, it refuses:
 
 - a sha256 that isn't 64 hex digits;
-- a published size of 0, or over 512 MiB;
+- a published size of 0, or over 512 MiB (1 GiB for a macOS `app` zip);
 - a manifest with no binary for this platform.
 
 While installing, `install` refuses:
@@ -69,6 +69,17 @@ While installing, `install` refuses:
 - to start when `<exe>.staging` already exists, so it never writes through a
   planted file or link, or into another install's download;
 - more bytes than were published, fewer, or a sha256 that differs.
+
+For an app that runs from a macOS `.app` bundle, `install` also refuses:
+
+- an entry with no `app` bundle, rather than put a new executable inside a
+  signed bundle;
+- a bundle or folder this user can't write, before downloading anything;
+- a running app with no Team ID to match;
+- a zip that doesn't hold exactly one `.app` folder;
+- a new bundle whose code signature doesn't verify
+  (`codesign --verify --deep --strict`), or whose Team ID or identifier
+  differs from the running app's.
 
 And versions compare by semver, ignoring build metadata, so `1.2.0+rebuild`
 doesn't reinstall over `1.2.0`, and a replayed older manifest offers no
