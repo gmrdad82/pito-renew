@@ -1,0 +1,4 @@
+docs/images/forged.gif is a capture of this crate's own example, examples/demo.rs
+run with --forged, recorded from render/terminal.toml.
+© 2026 Cătălin Ilinca. It is under the MIT licence like the code (see LICENSE);
+the names and logos in it are as TRADEMARKS.md says.

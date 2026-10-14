@@ -1,0 +1,12 @@
+pito-renew
+© 2026 Cătălin Ilinca. The code is MIT licensed, see LICENSE.
+
+Images in docs/images/, all made from this repository:
+
+- demo.gif, forged.gif, major.gif: recordings of examples/demo.rs, made with
+  prec from render/terminal.toml and the tapes in render/terminal/, converted
+  with pconv.
+- update-paired.png: drawn by pcmp (pito-compare) from
+  render/charts/update.toml, numbers from examples/speed.rs.
+- size-bars.png: drawn by pcmp (pito-compare) from render/charts/size.toml,
+  sizes of two stripped release builds of a small app, with and without renew.

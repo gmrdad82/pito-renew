@@ -3,14 +3,11 @@ use std::net::TcpListener;
 
 use renew::{Check, Release, platform_key};
 
-const CURRENT: &str = "1.0.0";
-const LATEST: &str = "1.1.0";
-
-fn serve(keys: &minisign::KeyPair, published: &[u8], served: Vec<u8>) -> String {
+fn serve(keys: &minisign::KeyPair, latest: &str, published: &[u8], served: Vec<u8>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let manifest = format!(
-        r#"{{"version":"{LATEST}","platforms":{{"{key}":{{"url":"{base}/app","sha256":"{sha}","size":{size}}}}}}}"#,
+        r#"{{"version":"{latest}","platforms":{{"{key}":{{"url":"{base}/app","sha256":"{sha}","size":{size}}}}}}}"#,
         key = platform_key(),
         sha = fetch::sha256_hex(published),
         size = published.len(),
@@ -43,35 +40,50 @@ fn serve(keys: &minisign::KeyPair, published: &[u8], served: Vec<u8>) -> String 
 }
 
 fn main() {
-    let tampered = std::env::args().any(|arg| arg == "--tampered");
-    let published = format!("app {LATEST}\n").into_bytes();
-    let served = if tampered {
+    let flag = |name: &str| std::env::args().any(|arg| arg == name);
+    let (current, latest) = if flag("--major") {
+        ("1.4.2", "2.0.0")
+    } else {
+        ("1.0.0", "1.1.0")
+    };
+    let published = format!("app {latest}\n").into_bytes();
+    let served = if flag("--tampered") {
         b"app 6.6.6\n".to_vec()
     } else {
         published.clone()
     };
     let keys = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
-    let base = serve(&keys, &published, served);
+    let base = if flag("--forged") {
+        let other = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        serve(&other, latest, &published, served)
+    } else {
+        serve(&keys, latest, &published, served)
+    };
 
     let dir = tempfile::tempdir().unwrap();
     let exe = dir.path().join("app");
-    std::fs::write(&exe, format!("app {CURRENT}\n")).unwrap();
+    std::fs::write(&exe, format!("app {current}\n")).unwrap();
     let platform = match platform_key() {
         "" => "an unlisted platform",
         key => key,
     };
-    println!("running   app {CURRENT} on {platform}");
+    println!("running   app {current} on {platform}");
 
     let binary = match renew::check(
         &format!("{base}/manifest.json"),
         &keys.pk.to_base64(),
-        CURRENT,
+        current,
     ) {
         Ok(Check {
             update: Some(Release { version, binary }),
-            ..
+            new_major,
         }) => {
-            println!("check     {version} is out, {} bytes", binary.size);
+            let major = if new_major.is_some() {
+                ", a new major version"
+            } else {
+                ""
+            };
+            println!("check     {version} is out{major}, {} bytes", binary.size);
             binary
         }
         Ok(Check { update: None, .. }) => {
@@ -79,7 +91,9 @@ fn main() {
             return;
         }
         Err(error) => {
-            println!("check     {error}");
+            println!("check     ✗ {error}");
+            let on_disk = std::fs::read_to_string(&exe).unwrap();
+            println!("on disk   {}", on_disk.trim_end());
             return;
         }
     };

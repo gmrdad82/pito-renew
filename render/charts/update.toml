@@ -1,0 +1,21 @@
+title = "UPDATE A 64 MIB BINARY"
+unit = "MILLISECONDS, MEDIAN OF 7"
+better = "lower"
+subtitle = "RYZEN 9 9950X, LINUX, LOOPBACK HTTP"
+date = "2026-10-14"
+suffix = " MS"
+notes = [
+  "DOWNLOAD, SHA256 CHECK, AN EXECUTABLE FILE IN PLACE.",
+  "RENEW 0.2.1 HASHES AS IT DOWNLOADS; CURL 8.22 SAVES",
+  "THE FILE, THEN SHA256SUM 9.11 READS IT BACK.",
+]
+
+[[parties]]
+name = "RENEW"
+
+[[parties]]
+name = "CURL + SHA256SUM"
+
+[[groups]]
+name = "EXAMPLES/SPEED.RS"
+rows = [{ label = "64 MIB", values = [193, 225] }]

@@ -43,3 +43,19 @@ tape = "render/terminal/demo.tape"
 launch = "export PATH={bin}:$PATH && clear"
 settle = "400ms"
 status = "SHIPPED"
+
+[shots.forged]
+kind = "clip"
+line = "The demo with --forged: the manifest is signed by a key the app doesn't carry, so check refuses it and the app at 1.0.0 stays as it was"
+tape = "render/terminal/forged.tape"
+launch = "export PATH={bin}:$PATH && clear"
+settle = "400ms"
+status = "SHIPPED"
+
+[shots.major]
+kind = "clip"
+line = "The demo with --major: an app at 1.4.2 finds 2.0.0, is told it is a new major version, and installs it once its sha256 matches"
+tape = "render/terminal/major.tape"
+launch = "export PATH={bin}:$PATH && clear"
+settle = "400ms"
+status = "SHIPPED"
