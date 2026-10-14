@@ -1,14 +1,17 @@
+#[cfg(any(target_os = "macos", test))]
+mod bundle;
 mod engine;
 mod manifest;
 
 pub use engine::{clean_old_binary, install, restart, staging_path};
-pub use manifest::{Binary, Check, Release, platform_key};
+pub use manifest::{AppBundle, Binary, Check, Release, platform_key};
 
 use std::time::Duration;
 
 pub const MANIFEST_TIMEOUT: Duration = Duration::from_secs(3);
 pub const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
 pub const MAX_BINARY_BYTES: u64 = 512 * 1024 * 1024;
+pub const MAX_APP_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RenewError {
@@ -34,6 +37,10 @@ pub enum RenewError {
     InsecureUrl,
     #[error("the new binary could not be swapped in: {source}")]
     SwapFailed { source: std::io::Error },
+    #[error("this app runs from a macOS .app bundle and no bundle is published for it")]
+    NoAppBundle,
+    #[error("{} is not writable by this user, so the app can't update itself", path.display())]
+    NotWritable { path: std::path::PathBuf },
 }
 
 pub fn check(

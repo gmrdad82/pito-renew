@@ -4,7 +4,7 @@ use std::io::Read;
 use minisign_verify::{PublicKey, Signature};
 use serde::Deserialize;
 
-use crate::{MANIFEST_TIMEOUT, MAX_BINARY_BYTES, RenewError};
+use crate::{MANIFEST_TIMEOUT, MAX_APP_BYTES, MAX_BINARY_BYTES, RenewError};
 
 const MANIFEST_BYTES: u64 = 1024 * 1024;
 const SIGNATURE_BYTES: u64 = 4 * 1024;
@@ -25,6 +25,15 @@ struct Entry {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Binary {
+    pub url: String,
+    pub sha256: String,
+    pub size: u64,
+    #[serde(default)]
+    pub app: Option<AppBundle>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AppBundle {
     pub url: String,
     pub sha256: String,
     pub size: u64,
@@ -113,19 +122,27 @@ impl Entry {
             .platforms
             .get(platform_key())
             .ok_or(RenewError::NoPlatformBinary)?;
-        if binary.sha256.len() != 64 || !binary.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(RenewError::ManifestMalformed);
-        }
-        if binary.size == 0 || binary.size > MAX_BINARY_BYTES {
-            return Err(RenewError::VerifyFailed {
-                detail: format!("published size {} is outside the sane band", binary.size),
-            });
+        sane(&binary.sha256, binary.size, MAX_BINARY_BYTES)?;
+        if let Some(app) = &binary.app {
+            sane(&app.sha256, app.size, MAX_APP_BYTES)?;
         }
         Ok(Release {
             version: self.version.clone(),
             binary: binary.clone(),
         })
     }
+}
+
+fn sane(sha256: &str, size: u64, cap: u64) -> Result<(), RenewError> {
+    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(RenewError::ManifestMalformed);
+    }
+    if size == 0 || size > cap {
+        return Err(RenewError::VerifyFailed {
+            detail: format!("published size {size} is outside the sane band"),
+        });
+    }
+    Ok(())
 }
 
 pub(crate) fn public_key(base64: &str) -> Result<PublicKey, RenewError> {
@@ -304,6 +321,41 @@ mod tests {
                 "sha256 {sha256}"
             );
         }
+    }
+
+    #[test]
+    fn a_platforms_app_bundle_rides_along_and_is_held_to_the_same_checks() {
+        let app = |sha256: &str, size: u64| {
+            let raw = format!(
+                r#"{{"version":"1.1.0","platforms":{{"{key}":{{"url":"https://example.invalid/bin","sha256":"{bin}","size":100,"app":{{"url":"https://example.invalid/App.zip","sha256":"{sha256}","size":{size}}}}}}}}}"#,
+                key = platform_key(),
+                bin = "ab".repeat(32),
+            );
+            Manifest::parse(raw.as_bytes())
+                .unwrap()
+                .check_against("1.0.0")
+        };
+        assert_eq!(
+            app(&"cd".repeat(32), 200)
+                .unwrap()
+                .update
+                .unwrap()
+                .binary
+                .app,
+            Some(AppBundle {
+                url: "https://example.invalid/App.zip".to_string(),
+                sha256: "cd".repeat(32),
+                size: 200,
+            })
+        );
+        assert!(matches!(
+            app(&"c".repeat(63), 200),
+            Err(RenewError::ManifestMalformed)
+        ));
+        assert!(matches!(
+            app(&"cd".repeat(32), MAX_APP_BYTES + 1),
+            Err(RenewError::VerifyFailed { .. })
+        ));
     }
 
     #[test]

@@ -17,18 +17,27 @@ fn old_path(exe: &Path) -> PathBuf {
     beside(exe, ".old")
 }
 
-fn beside(exe: &Path, suffix: &str) -> PathBuf {
+pub(crate) fn beside(exe: &Path, suffix: &str) -> PathBuf {
     let mut name = OsString::from(exe.as_os_str());
     name.push(suffix);
     PathBuf::from(name)
 }
 
 pub fn install(binary: &Binary, exe: &Path) -> Result<(), RenewError> {
+    #[cfg(target_os = "macos")]
+    if let Some(bundle) = crate::bundle::bundle_of(exe) {
+        return crate::bundle::install(binary, &bundle);
+    }
     let response = crate::get(&binary.url, DOWNLOAD_TIMEOUT, RenewError::DownloadFailed)?;
     let staging = staging_path(exe);
     let file = create_staging(&staging)?;
-    let outcome = download_verified(binary, response.into_body().into_reader(), file)
-        .and_then(|()| swap_in(exe, &staging));
+    let outcome = download_verified(
+        &binary.sha256,
+        binary.size,
+        response.into_body().into_reader(),
+        file,
+    )
+    .and_then(|()| swap_in(exe, &staging));
     if outcome.is_err() {
         let _ = std::fs::remove_file(&staging);
     }
@@ -61,8 +70,9 @@ fn create_staging(staging: &Path) -> Result<File, RenewError> {
         .map_err(|source| RenewError::StageFailed { source })
 }
 
-fn download_verified(
-    binary: &Binary,
+pub(crate) fn download_verified(
+    sha256: &str,
+    size: u64,
     mut reader: impl Read,
     mut file: File,
 ) -> Result<(), RenewError> {
@@ -77,9 +87,9 @@ fn download_verified(
             break;
         }
         received += got as u64;
-        if received > binary.size {
+        if received > size {
             return Err(RenewError::VerifyFailed {
-                detail: format!("more than the published {} bytes arrived", binary.size),
+                detail: format!("more than the published {size} bytes arrived"),
             });
         }
         hasher.update(&buf[..got]);
@@ -90,13 +100,13 @@ fn download_verified(
         .map_err(|source| RenewError::StageFailed { source })?;
     drop(file);
 
-    if received != binary.size {
+    if received != size {
         return Err(RenewError::VerifyFailed {
-            detail: format!("{received} bytes arrived, {} were published", binary.size),
+            detail: format!("{received} bytes arrived, {size} were published"),
         });
     }
     let got_hex = hasher.finalize_hex();
-    if !got_hex.eq_ignore_ascii_case(binary.sha256.trim()) {
+    if !got_hex.eq_ignore_ascii_case(sha256.trim()) {
         return Err(RenewError::VerifyFailed {
             detail: "the checksum does not match the published one".to_string(),
         });
@@ -131,11 +141,19 @@ fn swap_in(exe: &Path, staging: &Path) -> Result<(), RenewError> {
 }
 
 pub fn clean_old_binary(exe: &Path) {
+    #[cfg(target_os = "macos")]
+    if let Some(bundle) = crate::bundle::bundle_of(exe) {
+        crate::bundle::clean(&bundle);
+    }
     let _ = std::fs::remove_file(old_path(exe));
     let _ = std::fs::remove_file(staging_path(exe));
 }
 
 pub fn restart(exe: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(bundle) = crate::bundle::bundle_of(exe) {
+        return crate::bundle::relaunch(&bundle);
+    }
     Command::new(exe)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -145,10 +163,10 @@ pub fn restart(exe: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn scratch() -> tempfile::TempDir {
+    pub(crate) fn scratch() -> tempfile::TempDir {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tmp/testscratch");
         std::fs::create_dir_all(&root).unwrap();
         tempfile::Builder::new()
@@ -157,7 +175,7 @@ mod tests {
             .unwrap()
     }
 
-    fn serve_once(body: Vec<u8>) -> String {
+    pub(crate) fn serve_once(body: Vec<u8>) -> String {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
@@ -180,6 +198,7 @@ mod tests {
             url,
             sha256: fetch::sha256_hex(body),
             size: body.len() as u64,
+            app: None,
         }
     }
 
@@ -251,6 +270,7 @@ mod tests {
             url,
             sha256: "ab".repeat(32),
             size: 4,
+            app: None,
         };
 
         assert!(matches!(
@@ -269,6 +289,7 @@ mod tests {
             url: String::from("http://example.com/app"),
             sha256: "ab".repeat(32),
             size: 4,
+            app: None,
         };
 
         assert!(matches!(

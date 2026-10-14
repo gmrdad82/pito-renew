@@ -306,6 +306,7 @@ name = "renew"
 version = "1.0.2"
 dependencies = [
  "fetch",
+ "libc",
  "minisign",
  "minisign-verify",
  "semver",
