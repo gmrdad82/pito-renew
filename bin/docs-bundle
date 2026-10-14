@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+crate="v$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+version="${1:-$crate}"
+if [[ "$version" != "$crate" ]]; then
+    echo "docs-bundle: $version is not the crate's version, $crate" >&2
+    exit 1
+fi
+if ! grep -q "^## $version " CHANGELOG.md; then
+    echo "docs-bundle: CHANGELOG.md has no section for $version" >&2
+    exit 1
+fi
+
+out=tmp/docs-bundle
+rm -rf "$out"
+mkdir -p "$out/docs/images"
+cp -R docs/site/. "$out/docs/"
+find "$out/docs" -name '*.md' -exec sed -i.bak "s/@VERSION@/$version/g" {} +
+find "$out/docs" -name '*.md.bak' -delete
+
+for image in docs/images/*.png docs/images/*.gif docs/images/*.webp; do
+    [[ -e "$image" ]] || continue
+    name="$(basename "$image")"
+    if ! grep -q "$name" NOTICE; then
+        echo "docs-bundle: $name is not named in NOTICE" >&2
+        exit 1
+    fi
+    cp "$image" "$out/docs/images/"
+done
+
+{
+    printf -- '---\ntitle: Changelog\ndescription: Every release of pito-renew, with what was added, changed and fixed.\nsidebar:\n  order: 90\n---\n'
+    sed '1{/^# /d;}' CHANGELOG.md
+} > "$out/docs/changelog.md"
+
+rm -rf target/doc
+cargo doc --no-deps --locked --quiet
+cp -R target/doc "$out/docs/api"
+rm -f "$out/docs/api/.lock"
+
+for page in "$out"/docs/*.md "$out"/docs/*/*.md; do
+    for image in $(grep -o 'images/[A-Za-z0-9._-]*' "$page" | sort -u); do
+        if [[ ! -e "$out/docs/$image" ]]; then
+            echo "docs-bundle: $page uses $image, which is not in the bundle" >&2
+            exit 1
+        fi
+    done
+done
+if grep -rIl -e "$HOME" -e '/home/' -e '/Users/' "$out/docs" >&2; then
+    echo "docs-bundle: a local path is in the files above" >&2
+    exit 1
+fi
+
+tar -C "$out" -czf "$out/docs-$version.tar.gz" docs
+echo "$out/docs-$version.tar.gz"

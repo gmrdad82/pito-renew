@@ -28,7 +28,7 @@ carries and the binary's size and sha256 match what was signed.
 Add it from git, pinned to a release tag (it isn't on crates.io):
 
 ```toml
-renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "v1.0.0" }
+renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "v1.0.1" }
 ```
 
 The same line works on Linux and macOS. Then, in the app, at start-up or
@@ -258,6 +258,11 @@ bin/gate
 runs rustfmt, clippy with warnings as errors, and the tests. The tests serve
 their downloads from a local port and write their scratch files under
 `tmp/`, so they need no network.
+
+`bin/docs-bundle` builds `tmp/docs-bundle/docs-vX.Y.Z.tar.gz` for
+[docs.pitomd.com](https://docs.pitomd.com/pito-renew/): the guides in
+`docs/site/`, the images, the changelog and the `cargo doc` API reference.
+The release workflow attaches it to each tag's GitHub Release.
 
 ## Contributing
 
