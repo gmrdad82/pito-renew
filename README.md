@@ -28,7 +28,7 @@ carries and the binary's size and sha256 match what was signed.
 Add it from git, pinned to a release tag (it isn't on crates.io):
 
 ```toml
-renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "v1.0.1" }
+renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "v1.0.2" }
 ```
 
 The same line works on Linux and macOS. Then, in the app, at start-up or

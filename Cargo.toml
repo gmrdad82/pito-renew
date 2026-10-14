@@ -1,6 +1,6 @@
 [package]
 name = "renew"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 rust-version = "1.97"
 description = "Self-update for a Rust app: fetch a release manifest, stream-verify this platform's binary against its sha256, swap it in place and relaunch"
