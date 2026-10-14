@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.1 — 2026-10-14
+
+### Added
+
+- Guides for docs.pitomd.com: install, adding self-update to an app, signing and publishing a release, what it refuses, new major versions, measuring, and the manifest format, with the API reference from `cargo doc`.
+- Each GitHub Release carries `docs-vX.Y.Z.tar.gz`, the docs bundle that `bin/docs-bundle` builds.
+
 ## v1.0.0 — 2026-10-14
 
 ### Added
