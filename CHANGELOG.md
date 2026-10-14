@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.0 — 2026-10-14
+
+### Added
+
+- `cargo run --release --example speed` times a check and a 64 MiB update over loopback, beside `curl` then `sha256sum`.
+- The demo takes `--forged` (a manifest signed by another key, refused) and `--major` (an update to a new major version).
+
+### Changed
+
+- pito-renew is 1.0.0. The API is the same as 0.2.1's: moving to it is only a change of tag.
+- The README shows each feature with a clip or a chart, with the speed and size numbers and how they were measured.
+
 ## v0.2.1 — 2026-10-13
 
 ### Changed
