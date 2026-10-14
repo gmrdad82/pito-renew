@@ -11,6 +11,12 @@ Images in docs/images/, all made from this repository:
 - size-bars.png: drawn by pcmp (pito-compare) from render/charts/size.toml,
   sizes of two stripped release builds of a small app, with and without renew.
 
+The PITO MD wordmark in assets/marks/pitomd-wordmark.svg is copied by bin/marks
+from the PITO MD brand masters (exports/pitomd/readme/wordmark.svg) at
+aa3aee8b232a1b848995bf3d9a012a01d4aff8ec. The PITO MD name and its logos are
+© Catalin Ilinca, all rights reserved and not covered by the MIT licence
+(TRADEMARKS.md).
+
 The macOS bundle install in src/bundle.rs follows Sparkle's (unpack with
 ditto, verify the code signature against the running app's Team ID, swap the
 bundles with renamex_np(RENAME_SWAP) or two renames, touch the new bundle and
