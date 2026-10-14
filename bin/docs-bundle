@@ -35,6 +35,40 @@ done
     sed '1{/^# /d;}' CHANGELOG.md
 } > "$out/docs/changelog.md"
 
+quote='
+function json(v,    out, i, c) {
+    out = ""
+    for (i = 1; i <= length(v); i++) {
+        c = substr(v, i, 1)
+        if (c == "\\" || c == "\"") out = out "\\" c
+        else if (c == "\t") out = out "\\t"
+        else out = out c
+    }
+    return "\"" out "\""
+}
+NR == 1 && $0 == "---" { front = 1; print; next }
+front && $0 == "---" { front = 0; print; next }
+front && /^[^ ]/ { sidebar = ($0 ~ /^sidebar:[ \t]*$/) }
+front && match($0, /^(title|description|  label):[ \t]*/) && (substr($0, 1, 1) != " " || sidebar) {
+    key = substr($0, 1, RLENGTH)
+    sub(/[ \t]+$/, "", key)
+    value = substr($0, RLENGTH + 1)
+    sub(/[ \t]+$/, "", value)
+    if (value ~ /^".*"$/ || value == "") { print; next }
+    if (value ~ /^'"'"'.*'"'"'$/) {
+        value = substr(value, 2, length(value) - 2)
+        gsub(/'"''"'/, "'"'"'", value)
+    }
+    print key " " json(value)
+    next
+}
+{ print }
+'
+for page in "$out"/docs/*.md "$out"/docs/*/*.md; do
+    awk "$quote" "$page" > "$page.quoted"
+    mv "$page.quoted" "$page"
+done
+
 rm -rf target/doc
 cargo doc --no-deps --locked --quiet
 cp -R target/doc "$out/docs/api"
