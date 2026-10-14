@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.0.0 — 2026-10-14
+
+### Added
+
+- An app that runs from a macOS `.app` bundle now updates the whole bundle, so a notarised app keeps a valid signature. The manifest's `platforms.macos-arm64.app` (`url`, `sha256`, `size`) points to a `ditto -c -k --keepParent` zip of the signed, notarised, stapled app; `install` checks the zip, unpacks it beside the running app, refuses it unless its code signature verifies against an Apple certificate of the running app's Team ID and identifier, swaps the two bundles in one step and keeps the old one until the next start. `restart` opens the new bundle.
+- An app the user can't write, such as one owned by root in `/Applications` or run from a disk image, answers that it can't update itself (`NotWritable`) before downloading anything. A bundled app with no bundle in the manifest answers `NoAppBundle` instead of breaking its signature.
+
+### Changed
+
+- `Binary` gains `app: Option<AppBundle>` and `RenewError` gains `NoAppBundle` and `NotWritable`: code that builds a `Binary` by hand adds `app: None`, and an exhaustive `match` on `RenewError` adds the two arms. The macOS bundle path is tested on GitHub's macOS runners only, without a notarised bundle.
+
 ## v1.0.2 — 2026-10-14
 
 ### Fixed
