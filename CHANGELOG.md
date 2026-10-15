@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.0.0 — 2026-10-15
+
+### Added
+
+- `check_since` refuses a stale or replayed manifest: one with no signed `issued` time, or issued before a floor the app keeps, such as its build time or the newest `issued` it has seen.
+- The manifest takes an optional `issued` field, in Unix seconds, and `Check` reports it.
+
+### Changed
+
+- `Check` and `RenewError` are non-exhaustive: destructure a `Check` with `..` and give a `match` on `RenewError` a catch-all arm.
+- The README's Licence section shows the PITO MD wordmark.
+
 ## v2.0.0 — 2026-10-14
 
 ### Added
