@@ -117,7 +117,10 @@ An app at 1.4.2 takes 2.0.0 like any other update, and `check` also hands
 back the release as `new_major`, so the app can tell the user. If a new major
 ships without a binary for some platform, apps there keep getting the newest
 release of their own major. Versions compare by semver, ignoring build
-metadata, and a replayed older manifest offers no update.
+metadata, and a replayed older manifest offers no update. With a signed
+`issued` time in the manifest, `check_since` also refuses one issued before a
+floor the app keeps, so an old signed manifest served again can't offer a
+release since superseded.
 
 ### Fast
 
@@ -151,7 +154,8 @@ streaming sha256 is [pito-fetch](https://github.com/gmrdad82/pito-fetch)'s.
 }
 ```
 
-The top-level `version` and `platforms` are the newest release. If a new
+The top-level `version` and `platforms` are the newest release, and an
+optional `issued` is when the manifest was signed, in Unix seconds. If a new
 major ships without a binary for some platform, list the newest release of
 each older major under `releases`, so apps on that platform keep getting that
 major's updates:
@@ -198,7 +202,7 @@ const RELEASE_KEY: &str = "RWQ…";
 fn update() -> Result<(), Box<dyn Error>> {
     let exe = std::env::current_exe()?;
     renew::clean_old_binary(&exe);
-    let Check { update, new_major } = renew::check(
+    let Check { update, new_major, .. } = renew::check(
         "https://example.com/app/manifest.json",
         RELEASE_KEY,
         env!("CARGO_PKG_VERSION"),
@@ -221,7 +225,12 @@ fn update() -> Result<(), Box<dyn Error>> {
   signature over the exact manifest bytes, and answers a `Check` with two
   fields, each a `Release` (the version and this platform's binary) or
   `None`: `update`, the newest release newer than the running one, whatever
-  its major, and `new_major`, the same release when it is a later major.
+  its major, and `new_major`, the same release when it is a later major; and
+  `issued`, the manifest's `issued` time if it has one.
+- `check_since(url, public_key, current, not_before)` does the same and
+  refuses a manifest with no `issued` or issued before `not_before` (Unix
+  seconds), such as the app's build time or the newest `issued` it has
+  stored.
 - `install(&binary, &exe)` downloads over HTTPS (plain http only to this
   machine) to `<exe>.staging` (180 s timeout), created by it with mode 0755,
   checks the size and the sha256, and renames the file over `exe`. On any
@@ -238,7 +247,7 @@ unreachable (its signature missing included) or malformed, a public key that
 isn't a minisign key, a signature that doesn't verify, a plain http URL, no
 binary for this platform, a failed download, a bad version string, a
 staging, verification or swap error, a macOS bundle with no bundle published
-for it, or an app folder this user can't write.
+for it, an app folder this user can't write, or a stale manifest.
 
 The crate also builds for native Windows, where the swap parks the running
 binary as `<exe>.old` first; CI doesn't run that path, so it is untested.

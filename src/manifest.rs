@@ -15,6 +15,8 @@ pub(crate) struct Manifest {
     latest: Entry,
     #[serde(default)]
     releases: Vec<Entry>,
+    #[serde(default)]
+    issued: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -46,9 +48,11 @@ pub struct Release {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct Check {
     pub update: Option<Release>,
     pub new_major: Option<Release>,
+    pub issued: Option<u64>,
 }
 
 pub fn platform_key() -> &'static str {
@@ -76,6 +80,13 @@ impl Manifest {
         Self::parse(raw)
     }
 
+    pub(crate) fn issued_since(&self, not_before: u64) -> Result<(), RenewError> {
+        match self.issued {
+            Some(issued) if issued >= not_before => Ok(()),
+            issued => Err(RenewError::StaleManifest { issued, not_before }),
+        }
+    }
+
     fn parse(raw: &[u8]) -> Result<Self, RenewError> {
         serde_json::from_slice(raw).map_err(|_| RenewError::ManifestMalformed)
     }
@@ -96,6 +107,7 @@ impl Manifest {
             return Ok(Check {
                 update: new_major.clone(),
                 new_major,
+                issued: self.issued,
             });
         }
         let update = entries
@@ -106,6 +118,7 @@ impl Manifest {
         Ok(Check {
             update,
             new_major: None,
+            issued: self.issued,
         })
     }
 }
@@ -355,6 +368,29 @@ mod tests {
         assert!(matches!(
             app(&"cd".repeat(32), MAX_APP_BYTES + 1),
             Err(RenewError::VerifyFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn a_manifest_issued_before_the_floor_or_undated_is_stale() {
+        let dated = |issued: &str| {
+            let raw = format!(r#"{{{}{issued}}}"#, entry("1.1.0", platform_key()));
+            Manifest::parse(raw.as_bytes()).unwrap()
+        };
+        let manifest = dated(r#","issued":1000"#);
+        assert!(manifest.issued_since(999).is_ok());
+        assert!(manifest.issued_since(1000).is_ok());
+        assert!(matches!(
+            manifest.issued_since(1001),
+            Err(RenewError::StaleManifest {
+                issued: Some(1000),
+                not_before: 1001
+            })
+        ));
+        assert_eq!(manifest.check_against("1.0.0").unwrap().issued, Some(1000));
+        assert!(matches!(
+            dated("").issued_since(0),
+            Err(RenewError::StaleManifest { issued: None, .. })
         ));
     }
 

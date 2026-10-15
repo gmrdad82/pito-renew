@@ -77,6 +77,7 @@ fn main() {
         Ok(Check {
             update: Some(Release { version, binary }),
             new_major,
+            ..
         }) => {
             let major = if new_major.is_some() {
                 ", a new major version"

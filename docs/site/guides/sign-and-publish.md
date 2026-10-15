@@ -65,6 +65,10 @@ The platform keys are `linux-x86_64`, `macos-arm64` and `windows-x86_64`;
 `renew::platform_key()` gives the running build's key. Each `sha256` is 64
 hex digits and each `size` is above 0 and at most 512 MiB, or 1 GiB for an
 `app` zip.
+
+Add `"issued"`, the time you sign it in Unix seconds (`date +%s`), at the top
+level. It sits inside the signed bytes, so an app that calls `check_since`
+can refuse an older signed manifest served again.
 [Formats](../../reference/formats/) has every field and limit.
 
 ## 4. Sign it and serve both files

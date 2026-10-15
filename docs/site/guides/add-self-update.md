@@ -39,10 +39,33 @@ only then reads it. It answers a `Check`:
 - `update`: the newest release newer than `current`, whatever its major, with
   this platform's binary, or `None`;
 - `new_major`: the same release when it is a later major than `current`, or
-  `None`.
+  `None`;
+- `issued`: the manifest's `issued` time in Unix seconds, or `None`.
 
 `check` keeps no state, so call it as often as you like: at start-up, on a
 timer, or from a menu item.
+
+### Refuse a replayed manifest
+
+Any manifest you ever signed still verifies, so a stale cache or a host
+serving an old pair can offer a release you have since superseded. When the
+manifest carries `issued` ([Sign and publish](../sign-and-publish/)), call
+`check_since` instead, with a floor the app keeps:
+
+```rust
+let floor = BUILT_AT.max(last_issued_seen);
+let check = renew::check_since(MANIFEST_URL, RELEASE_KEY, env!("CARGO_PKG_VERSION"), floor)?;
+if let Some(issued) = check.issued {
+    remember_issued(issued);
+}
+```
+
+`check_since(url, public_key, current, not_before)` makes the same checks and
+refuses with `StaleManifest` a manifest with no `issued` or one issued before
+`not_before`; one issued at exactly `not_before` passes, so the same manifest
+fetched twice is fine. `BUILT_AT` is a time the release build can't predate
+its manifest by, such as its commit time from the build script, and
+`last_issued_seen` is the newest `issued` the app has stored.
 
 ## 3. Install and relaunch
 
@@ -107,6 +130,7 @@ Every failure is a `RenewError` whose message names what went wrong:
 | `SwapFailed` | the new binary could not be swapped in: … |
 | `NoAppBundle` | this app runs from a macOS .app bundle and no bundle is published for it |
 | `NotWritable` | … is not writable by this user, so the app can't update itself |
+| `StaleManifest` | the release manifest was issued before …, so it is stale or replayed |
 
 A missing `.minisig` counts as `ManifestUnreachable`. None of them leaves a
 new binary in place: an app can show the message and carry on at its current
@@ -125,7 +149,7 @@ const RELEASE_KEY: &str = "RWQ…";
 fn update() -> Result<(), Box<dyn Error>> {
     let exe = std::env::current_exe()?;
     renew::clean_old_binary(&exe);
-    let Check { update, new_major } =
+    let Check { update, new_major, .. } =
         renew::check(MANIFEST_URL, RELEASE_KEY, env!("CARGO_PKG_VERSION"))?;
     let Some(update) = update else {
         return Ok(());

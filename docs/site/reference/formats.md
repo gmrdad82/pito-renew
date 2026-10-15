@@ -35,6 +35,7 @@ machine). The top level is the newest release:
 | `platforms.<key>.size` | integer | The executable's size in bytes: above 0, at most 512 MiB (536870912). |
 | `platforms.<key>.app` | object, optional | macOS only: the whole signed `.app`, for an app that runs from a bundle. Below. |
 | `releases` | array, optional | More releases with the same `version` and `platforms`, typically the newest of each older major. |
+| `issued` | integer, optional | When the manifest was signed, in Unix seconds. `check_since` refuses a manifest without it or issued before the floor the app passes. |
 
 renew picks among the top-level release and every entry of `releases`, by
 version: the newest release of a later major that has this platform's binary

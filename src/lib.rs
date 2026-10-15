@@ -14,6 +14,7 @@ pub const MAX_BINARY_BYTES: u64 = 512 * 1024 * 1024;
 pub const MAX_APP_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum RenewError {
     #[error("the release manifest could not be reached")]
     ManifestUnreachable,
@@ -41,6 +42,11 @@ pub enum RenewError {
     NoAppBundle,
     #[error("{} is not writable by this user, so the app can't update itself", path.display())]
     NotWritable { path: std::path::PathBuf },
+    #[error("the release manifest was issued before {not_before}, so it is stale or replayed")]
+    StaleManifest {
+        issued: Option<u64>,
+        not_before: u64,
+    },
 }
 
 pub fn check(
@@ -50,6 +56,18 @@ pub fn check(
 ) -> Result<Check, RenewError> {
     let public_key = manifest::public_key(public_key)?;
     let manifest = manifest::fetch_manifest(manifest_url, &public_key)?;
+    manifest.check_against(current_version)
+}
+
+pub fn check_since(
+    manifest_url: &str,
+    public_key: &str,
+    current_version: &str,
+    not_before: u64,
+) -> Result<Check, RenewError> {
+    let public_key = manifest::public_key(public_key)?;
+    let manifest = manifest::fetch_manifest(manifest_url, &public_key)?;
+    manifest.issued_since(not_before)?;
     manifest.check_against(current_version)
 }
 
