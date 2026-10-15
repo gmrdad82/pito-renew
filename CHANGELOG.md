@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.1.0 — 2026-10-15
+
+### Added
+
+- `check_app` refuses a manifest signed for another app, for publishers whose one key signs several apps' manifests: the manifest takes an optional signed `app` id, and a missing or different one answers `WrongApp`. It also makes every check `check_since` makes.
+
+### Changed
+
+- The manifest, its signature and the download share one connection pool, so a second request to the same host skips a new HTTPS handshake.
+- The download is not executable until its size and sha256 match: the staging file is 0600 while it downloads and becomes 0755 only then.
+- `install` refuses a binary whose sha256 isn't 64 hex digits or whose size is 0 or over the caps before fetching anything, even one the app built or stored itself.
+- The sha256 comes from the `sha2` crate directly, so building renew no longer clones pito-fetch.
+
 ## v3.0.0 — 2026-10-15
 
 ### Added
