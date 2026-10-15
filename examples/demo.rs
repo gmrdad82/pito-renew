@@ -7,9 +7,9 @@ fn serve(keys: &minisign::KeyPair, latest: &str, published: &[u8], served: Vec<u
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let manifest = format!(
-        r#"{{"version":"{latest}","platforms":{{"{key}":{{"url":"{base}/app","sha256":"{sha}","size":{size}}}}}}}"#,
+        r#"{{"version":"{latest}","platforms":{{"{key}":{{"url":"{base}/app","sha256":"{sha:x}","size":{size}}}}}}}"#,
         key = platform_key(),
-        sha = fetch::sha256_hex(published),
+        sha = <sha2::Sha256 as sha2::Digest>::digest(published),
         size = published.len(),
     );
     let signature = minisign::sign(Some(&keys.pk), &keys.sk, manifest.as_bytes(), None, None)

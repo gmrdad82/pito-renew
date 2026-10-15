@@ -22,9 +22,9 @@ match what was signed.
 |---|---|
 | Check for an update | **0.47 ms** on loopback, signature verified |
 | Download, verify and swap 64 MiB | **193 ms** on loopback, 1.2× faster than `curl` then `sha256sum` |
-| Library code | **727 lines** of Rust, `unsafe` only for two macOS system calls |
-| Dependencies | **7** direct (and libc on macOS), 44 in all, no system TLS library |
-| Added to a stripped release binary | **1.86 MiB**, HTTPS included |
+| Library code | **827 lines** of Rust, `unsafe` only for two macOS system calls |
+| Dependencies | **7** direct (and libc on macOS), 43 in all, no system TLS library |
+| Added to a stripped release binary | **1.88 MiB**, HTTPS included |
 
 [Measure speed and size](guides/measure/) shows how each number was taken.
 Works on Linux and macOS (Windows through WSL), CI-tested on both.

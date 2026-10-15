@@ -4,8 +4,10 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::manifest::Binary;
-use crate::{DOWNLOAD_TIMEOUT, RenewError};
+use sha2::{Digest, Sha256};
+
+use crate::manifest::{Binary, sane};
+use crate::{DOWNLOAD_TIMEOUT, MAX_APP_BYTES, MAX_BINARY_BYTES, RenewError};
 
 const CHUNK: usize = 64 * 1024;
 
@@ -24,20 +26,28 @@ pub(crate) fn beside(exe: &Path, suffix: &str) -> PathBuf {
 }
 
 pub fn install(binary: &Binary, exe: &Path) -> Result<(), RenewError> {
+    sane(&binary.sha256, binary.size, MAX_BINARY_BYTES)?;
+    if let Some(app) = &binary.app {
+        sane(&app.sha256, app.size, MAX_APP_BYTES)?;
+    }
     #[cfg(target_os = "macos")]
     if let Some(bundle) = crate::bundle::bundle_of(exe) {
         return crate::bundle::install(binary, &bundle);
     }
     let response = crate::get(&binary.url, DOWNLOAD_TIMEOUT, RenewError::DownloadFailed)?;
     let staging = staging_path(exe);
-    let file = create_staging(&staging)?;
+    let mut file = create_staging(&staging)?;
     let outcome = download_verified(
         &binary.sha256,
         binary.size,
         response.into_body().into_reader(),
-        file,
+        &mut file,
     )
-    .and_then(|()| swap_in(exe, &staging));
+    .and_then(|()| executable(&file))
+    .and_then(|()| {
+        drop(file);
+        swap_in(exe, &staging)
+    });
     if outcome.is_err() {
         let _ = std::fs::remove_file(&staging);
     }
@@ -46,19 +56,25 @@ pub fn install(binary: &Binary, exe: &Path) -> Result<(), RenewError> {
 
 #[cfg(unix)]
 fn create_staging(staging: &Path) -> Result<File, RenewError> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let file = std::fs::OpenOptions::new()
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(0o700)
+        .mode(0o600)
         .open(staging)
-        .map_err(|source| RenewError::StageFailed { source })?;
-    if let Err(source) = file.set_permissions(std::fs::Permissions::from_mode(0o755)) {
-        drop(file);
-        let _ = std::fs::remove_file(staging);
-        return Err(RenewError::StageFailed { source });
-    }
-    Ok(file)
+        .map_err(|source| RenewError::StageFailed { source })
+}
+
+#[cfg(unix)]
+fn executable(file: &File) -> Result<(), RenewError> {
+    use std::os::unix::fs::PermissionsExt;
+    file.set_permissions(std::fs::Permissions::from_mode(0o755))
+        .map_err(|source| RenewError::StageFailed { source })
+}
+
+#[cfg(windows)]
+fn executable(_: &File) -> Result<(), RenewError> {
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -74,9 +90,10 @@ pub(crate) fn download_verified(
     sha256: &str,
     size: u64,
     mut reader: impl Read,
-    mut file: File,
+    file: &mut File,
 ) -> Result<(), RenewError> {
-    let mut hasher = fetch::StreamHasher::new();
+    let expected = digest_of(sha256).ok_or(RenewError::ManifestMalformed)?;
+    let mut hasher = Sha256::new();
     let mut received: u64 = 0;
     let mut buf = [0u8; CHUNK];
     loop {
@@ -98,20 +115,32 @@ pub(crate) fn download_verified(
     }
     file.sync_all()
         .map_err(|source| RenewError::StageFailed { source })?;
-    drop(file);
 
     if received != size {
         return Err(RenewError::VerifyFailed {
             detail: format!("{received} bytes arrived, {size} were published"),
         });
     }
-    let got_hex = hasher.finalize_hex();
-    if !got_hex.eq_ignore_ascii_case(sha256.trim()) {
+    if hasher.finalize()[..] != expected[..] {
         return Err(RenewError::VerifyFailed {
             detail: "the checksum does not match the published one".to_string(),
         });
     }
     Ok(())
+}
+
+fn digest_of(hex: &str) -> Option<[u8; 32]> {
+    let hex = hex.trim().as_bytes();
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut digest = [0u8; 32];
+    for (byte, pair) in digest.iter_mut().zip(hex.chunks_exact(2)) {
+        let high = (pair[0] as char).to_digit(16)?;
+        let low = (pair[1] as char).to_digit(16)?;
+        *byte = (high << 4 | low) as u8;
+    }
+    Some(digest)
 }
 
 #[cfg(unix)]
@@ -193,10 +222,14 @@ pub(crate) mod tests {
         format!("http://{addr}/work")
     }
 
+    pub(crate) fn sha256_hex(body: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(body))
+    }
+
     fn binary_for(body: &[u8], url: String) -> Binary {
         Binary {
             url,
-            sha256: fetch::sha256_hex(body),
+            sha256: sha256_hex(body),
             size: body.len() as u64,
             app: None,
         }
@@ -297,6 +330,25 @@ pub(crate) mod tests {
             Err(RenewError::InsecureUrl)
         ));
         assert_eq!(std::fs::read(&exe).unwrap(), b"old binary");
+        assert!(!staging_path(&exe).exists());
+    }
+
+    #[test]
+    fn a_caller_built_binary_over_the_cap_is_refused_before_anything_is_fetched() {
+        let dir = scratch();
+        let exe = dir.path().join("pito-work");
+        std::fs::write(&exe, b"old binary").unwrap();
+        let binary = Binary {
+            url: String::from("http://127.0.0.1:9/app"),
+            sha256: "ab".repeat(32),
+            size: crate::MAX_BINARY_BYTES + 1,
+            app: None,
+        };
+
+        assert!(matches!(
+            install(&binary, &exe),
+            Err(RenewError::VerifyFailed { .. })
+        ));
         assert!(!staging_path(&exe).exists());
     }
 

@@ -62,7 +62,7 @@ fn main() {
         })
         .collect();
     let keys = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
-    let sha = fetch::sha256_hex(&binary);
+    let sha = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&binary));
     let binary = Arc::new(binary);
     let downloads = serve(String::new(), String::new(), binary.clone());
     let manifest = format!(
@@ -114,7 +114,10 @@ fn main() {
     }
 
     let start = Instant::now();
-    let _ = fetch::sha256_hex(&binary);
+    let _ = format!(
+        "{:x}",
+        <sha2::Sha256 as sha2::Digest>::digest(binary.as_slice())
+    );
     let hash = start.elapsed();
 
     let check = median(checks);

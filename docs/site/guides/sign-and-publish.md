@@ -68,7 +68,10 @@ hex digits and each `size` is above 0 and at most 512 MiB, or 1 GiB for an
 
 Add `"issued"`, the time you sign it in Unix seconds (`date +%s`), at the top
 level. It sits inside the signed bytes, so an app that calls `check_since`
-can refuse an older signed manifest served again.
+can refuse an older signed manifest served again. Add `"app"`, a short id
+for the app (its slug), too: an app that calls `check_app` refuses a manifest
+for any other app, which matters when one key signs several apps'
+manifests.
 [Formats](../../reference/formats/) has every field and limit.
 
 ## 4. Sign it and serve both files

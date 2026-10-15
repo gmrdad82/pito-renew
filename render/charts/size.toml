@@ -2,7 +2,7 @@ title = "WHAT RENEW ADDS TO A BINARY"
 unit = "KIB, STRIPPED RELEASE BUILD WITH LTO"
 better = "lower"
 subtitle = "LINUX X86_64, RUST 1.97.1"
-date = "2026-10-14"
+date = "2026-10-15"
 suffix = " KIB"
 notes = [
   "RENEW BRINGS ITS OWN HTTPS (UREQ, RUSTLS)",
@@ -16,5 +16,5 @@ name = "SIZE"
 name = "AN APP THAT PRINTS ITS VERSION"
 rows = [
   { label = "ALONE", values = [299] },
-  { label = "WITH RENEW", values = [2202] },
+  { label = "WITH RENEW", values = [2226] },
 ]

@@ -5,9 +5,9 @@ sidebar:
   order: 14
 ---
 
-renew's numbers come from one machine, measured once on 2026-10-14: AMD
-Ryzen 9 9950X (16 cores), Linux 7.2, Rust 1.97.1, renew 0.2.1, whose code
-is the same as 1.0's.
+renew's numbers come from one machine, measured once: AMD Ryzen 9 9950X
+(16 cores), Linux 7.2, Rust 1.97.1. Speed on 2026-10-14 with renew 0.2.1;
+size, lines and dependencies on 2026-10-15 with renew 3.1.0.
 
 ## Check and update speed
 
@@ -42,7 +42,7 @@ by a 3 s timeout over a real network.
 
 ## Size
 
-![Bars: an app that prints its version is 299 KiB stripped; with renew it is 2202 KiB, HTTPS included](../images/size-bars.png)
+![Bars: an app that prints its version is 299 KiB stripped; with renew it is 2226 KiB, HTTPS included](../images/size-bars.png)
 
 Two copies of a small app that prints its version, one alone and one that
 calls `check`, `install` and `restart`, built for linux-x86_64 with
@@ -55,16 +55,16 @@ codegen-units = 1
 strip = true
 ```
 
-They are 306,560 and 2,254,504 bytes. The difference, 1.86 MiB, is mostly
+They are 306,560 and 2,279,344 bytes. The difference, 1.88 MiB, is mostly
 HTTPS: ureq, rustls and its crypto. A cold release build of the second took
 50 s on the same machine.
 
 ## Lines and dependencies
 
-- **727 lines** of library code: `src/` without its tests; `unsafe` only
+- **827 lines** of library code: `src/` without its tests; `unsafe` only
   to call `access` and `renamex_np` on macOS.
-- **7** direct dependencies (and libc on macOS) and 44 in all:
+- **7** direct dependencies (and libc on macOS) and 43 in all:
   `cargo tree -e normal` on Linux. HTTP is
   [ureq](https://crates.io/crates/ureq) with rustls, the signature check is
   [minisign-verify](https://crates.io/crates/minisign-verify), and the
-  streaming sha256 is [pito-fetch](https://docs.pitomd.com/pito-fetch/)'s.
+  streaming sha256 is [sha2](https://crates.io/crates/sha2)'s.

@@ -16,9 +16,9 @@ carries and the binary's size and sha256 match what was signed.
 |---|---|
 | Check for an update | **0.47 ms** on loopback, signature verified |
 | Download, verify and swap 64 MiB | **193 ms** on loopback, 1.2× faster than `curl` then `sha256sum` |
-| Library code | **727 lines** of Rust, `unsafe` only for two macOS system calls |
-| Dependencies | **7** direct (and libc on macOS), 44 in all, no system TLS library |
-| Added to a stripped release binary | **1.86 MiB**, HTTPS included |
+| Library code | **827 lines** of Rust, `unsafe` only for two macOS system calls |
+| Dependencies | **7** direct (and libc on macOS), 43 in all, no system TLS library |
+| Added to a stripped release binary | **1.88 MiB**, HTTPS included |
 
 [How each number was measured](#how-it-measures). Works on Linux and macOS
 (Windows through WSL), CI-tested on both.
@@ -120,7 +120,8 @@ release of their own major. Versions compare by semver, ignoring build
 metadata, and a replayed older manifest offers no update. With a signed
 `issued` time in the manifest, `check_since` also refuses one issued before a
 floor the app keeps, so an old signed manifest served again can't offer a
-release since superseded.
+release since superseded, and with a signed `app` id `check_app` also refuses
+another app's manifest signed with the same key.
 
 ### Fast
 
@@ -134,13 +135,13 @@ costs no extra pass. A `check` is two small requests and one signature check:
 
 ### Small
 
-<p align="center"><img src="docs/images/size-bars.png" alt="Bars: an app that prints its version is 299 KiB stripped; with renew it is 2202 KiB, HTTPS included"></p>
+<p align="center"><img src="docs/images/size-bars.png" alt="Bars: an app that prints its version is 299 KiB stripped; with renew it is 2226 KiB, HTTPS included"></p>
 
-727 lines of library code and seven direct dependencies: HTTP is
+827 lines of library code and seven direct dependencies: HTTP is
 [ureq](https://crates.io/crates/ureq) with rustls, so it needs no system TLS
 library, the signature check is
 [minisign-verify](https://crates.io/crates/minisign-verify), and the
-streaming sha256 is [pito-fetch](https://github.com/gmrdad82/pito-fetch)'s.
+streaming sha256 is [sha2](https://crates.io/crates/sha2)'s.
 
 ## The manifest
 
@@ -154,8 +155,9 @@ streaming sha256 is [pito-fetch](https://github.com/gmrdad82/pito-fetch)'s.
 }
 ```
 
-The top-level `version` and `platforms` are the newest release, and an
-optional `issued` is when the manifest was signed, in Unix seconds. If a new
+The top-level `version` and `platforms` are the newest release, an optional
+`issued` is when the manifest was signed, in Unix seconds, and an optional
+`app` names the app it is for. If a new
 major ships without a binary for some platform, list the newest release of
 each older major under `releases`, so apps on that platform keep getting that
 major's updates:
@@ -231,9 +233,14 @@ fn update() -> Result<(), Box<dyn Error>> {
   refuses a manifest with no `issued` or issued before `not_before` (Unix
   seconds), such as the app's build time or the newest `issued` it has
   stored.
+- `check_app(url, public_key, app, current, not_before)` does what
+  `check_since` does and also refuses a manifest whose `app` isn't `app`, or
+  has none, so one key can sign several apps' manifests.
 - `install(&binary, &exe)` downloads over HTTPS (plain http only to this
-  machine) to `<exe>.staging` (180 s timeout), created by it with mode 0755,
-  checks the size and the sha256, and renames the file over `exe`. On any
+  machine) to `<exe>.staging` (180 s timeout), created by it with mode 0600,
+  checks the size and the sha256, makes it 0755 and renames it over `exe`. It
+  refuses a `Binary` whose sha256 isn't 64 hex digits or whose size is 0 or
+  over the caps before fetching, wherever the `Binary` came from. On any
   failure the staging file it made is removed and the old binary stays. When
   `exe` runs from a macOS `.app` bundle it installs the whole bundle instead,
   as above.
@@ -247,15 +254,17 @@ unreachable (its signature missing included) or malformed, a public key that
 isn't a minisign key, a signature that doesn't verify, a plain http URL, no
 binary for this platform, a failed download, a bad version string, a
 staging, verification or swap error, a macOS bundle with no bundle published
-for it, an app folder this user can't write, or a stale manifest.
+for it, an app folder this user can't write, a stale manifest, or another
+app's manifest.
 
 The crate also builds for native Windows, where the swap parks the running
 binary as `<exe>.old` first; CI doesn't run that path, so it is untested.
 
 ## How it measures
 
-All on one machine, 2026-10-14: AMD Ryzen 9 9950X (16 cores), Linux 7.2,
-Rust 1.97.1, renew 0.2.1. Measured once; the numbers are as printed.
+All on one machine: AMD Ryzen 9 9950X (16 cores), Linux 7.2, Rust 1.97.1.
+Speed on 2026-10-14 with renew 0.2.1; size, lines and dependencies on
+2026-10-15 with renew 3.1.0. Measured once; the numbers are as printed.
 
 - **Check and update speed:** `cargo run --release --example speed`. It serves
   a signed manifest and a 64 MiB binary from a local port, times 100 `check`
@@ -267,7 +276,7 @@ Rust 1.97.1, renew 0.2.1. Measured once; the numbers are as printed.
 - **Size:** two copies of a small app that prints its version, one alone and
   one that calls `check`, `install` and `restart`, built with
   `--release`, `lto = true`, `codegen-units = 1`, `strip = true` for
-  linux-x86_64: 306,560 and 2,254,504 bytes. The difference, 1.86 MiB, is
+  linux-x86_64: 306,560 and 2,279,344 bytes. The difference, 1.88 MiB, is
   mostly HTTPS (ureq, rustls and its crypto). A cold release build of the
   second took 50 s on the same machine.
 - **Lines and dependencies:** `src/` without its tests, and
@@ -275,9 +284,8 @@ Rust 1.97.1, renew 0.2.1. Measured once; the numbers are as printed.
 
 ## Part of PITO MD
 
-renew is the self-update of the [PITO MD](https://pitomd.com) apps. It hashes
-with [pito-fetch](https://github.com/gmrdad82/pito-fetch), and sits beside
-[pito-storekit](https://github.com/gmrdad82/pito-storekit) (the apps' SQLite
+renew is the self-update of the [PITO MD](https://pitomd.com) apps. It sits
+beside [pito-storekit](https://github.com/gmrdad82/pito-storekit) (the apps' SQLite
 store and its backups) and [pito-tui](https://github.com/gmrdad82/pito-tui)
 (the terminal app shell). The clips here were recorded with
 [prec](https://github.com/gmrdad82/prec) and made into GIFs with

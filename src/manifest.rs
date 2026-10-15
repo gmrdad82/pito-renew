@@ -17,6 +17,8 @@ pub(crate) struct Manifest {
     releases: Vec<Entry>,
     #[serde(default)]
     issued: Option<u64>,
+    #[serde(default)]
+    app: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -78,6 +80,16 @@ impl Manifest {
             .verify(raw, &signature, false)
             .map_err(|_| RenewError::BadSignature)?;
         Self::parse(raw)
+    }
+
+    pub(crate) fn for_app(&self, expected: &str) -> Result<(), RenewError> {
+        match &self.app {
+            Some(app) if app == expected => Ok(()),
+            found => Err(RenewError::WrongApp {
+                expected: expected.to_string(),
+                found: found.clone(),
+            }),
+        }
     }
 
     pub(crate) fn issued_since(&self, not_before: u64) -> Result<(), RenewError> {
@@ -146,7 +158,7 @@ impl Entry {
     }
 }
 
-fn sane(sha256: &str, size: u64, cap: u64) -> Result<(), RenewError> {
+pub(crate) fn sane(sha256: &str, size: u64, cap: u64) -> Result<(), RenewError> {
     if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(RenewError::ManifestMalformed);
     }
@@ -368,6 +380,23 @@ mod tests {
         assert!(matches!(
             app(&"cd".repeat(32), MAX_APP_BYTES + 1),
             Err(RenewError::VerifyFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn a_manifest_for_another_app_or_for_none_is_refused() {
+        let named = |app: &str| {
+            let raw = format!(r#"{{{}{app}}}"#, entry("1.1.0", platform_key()));
+            Manifest::parse(raw.as_bytes()).unwrap()
+        };
+        assert!(named(r#","app":"splicer""#).for_app("splicer").is_ok());
+        assert!(matches!(
+            named(r#","app":"paper""#).for_app("splicer"),
+            Err(RenewError::WrongApp { found: Some(found), .. }) if found == "paper"
+        ));
+        assert!(matches!(
+            named("").for_app("splicer"),
+            Err(RenewError::WrongApp { found: None, .. })
         ));
     }
 

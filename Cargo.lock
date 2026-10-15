@@ -114,16 +114,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
-name = "fetch"
-version = "0.1.2"
-source = "git+https://github.com/gmrdad82/pito-fetch?tag=v0.1.2#e5a6d649e996727f9c7b1268085f0366272c6563"
-dependencies = [
- "sha2",
- "thiserror",
- "ureq",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -305,13 +295,13 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 name = "renew"
 version = "3.0.0"
 dependencies = [
- "fetch",
  "libc",
  "minisign",
  "minisign-verify",
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "ureq",

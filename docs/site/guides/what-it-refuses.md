@@ -63,12 +63,20 @@ Before downloading, it refuses:
 - a published size of 0, or over 512 MiB (1 GiB for a macOS `app` zip);
 - a manifest with no binary for this platform.
 
+With `check_app`, it also refuses a manifest issued before the app's floor,
+or whose `app` isn't this app's.
+
 While installing, `install` refuses:
 
+- a sha256 that isn't 64 hex digits, or a size of 0 or over the caps, even
+  for a `Binary` the app built or stored itself;
 - plain http to any host but this machine, redirects included;
 - to start when `<exe>.staging` already exists, so it never writes through a
   planted file or link, or into another install's download;
 - more bytes than were published, fewer, or a sha256 that differs.
+
+The staging file is 0600 while it downloads and becomes 0755 only after its
+size and sha256 match, so unverified bytes are never executable.
 
 For an app that runs from a macOS `.app` bundle, `install` also refuses:
 

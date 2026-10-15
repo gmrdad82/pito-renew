@@ -6,6 +6,7 @@ mod manifest;
 pub use engine::{clean_old_binary, install, restart, staging_path};
 pub use manifest::{AppBundle, Binary, Check, Release, platform_key};
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
 pub const MANIFEST_TIMEOUT: Duration = Duration::from_secs(3);
@@ -47,6 +48,11 @@ pub enum RenewError {
         issued: Option<u64>,
         not_before: u64,
     },
+    #[error("the release manifest is not {expected}'s, so it was served at the wrong url")]
+    WrongApp {
+        expected: String,
+        found: Option<String>,
+    },
 }
 
 pub fn check(
@@ -71,18 +77,39 @@ pub fn check_since(
     manifest.check_against(current_version)
 }
 
+pub fn check_app(
+    manifest_url: &str,
+    public_key: &str,
+    app: &str,
+    current_version: &str,
+    not_before: u64,
+) -> Result<Check, RenewError> {
+    let public_key = manifest::public_key(public_key)?;
+    let manifest = manifest::fetch_manifest(manifest_url, &public_key)?;
+    manifest.for_app(app)?;
+    manifest.issued_since(not_before)?;
+    manifest.check_against(current_version)
+}
+
+static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
+    ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into()
+});
+
 pub(crate) fn get(
     url: &str,
     timeout: Duration,
     failed: RenewError,
 ) -> Result<ureq::http::Response<ureq::Body>, RenewError> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+    let request = AGENT
+        .get(url)
+        .config()
         .timeout_global(Some(timeout))
-        .http_status_as_error(false)
         .https_only(!loopback(url))
-        .build()
-        .into();
-    match agent.get(url).call() {
+        .build();
+    match request.call() {
         Ok(response) if response.status().is_success() => Ok(response),
         Err(ureq::Error::RequireHttpsOnly(_)) => Err(RenewError::InsecureUrl),
         _ => Err(failed),

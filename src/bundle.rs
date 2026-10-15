@@ -159,7 +159,7 @@ mod macos {
         let stage = |source| RenewError::StageFailed { source };
         let response = crate::get(&app.url, DOWNLOAD_TIMEOUT, RenewError::DownloadFailed)?;
         let zip = staging.join("app.zip");
-        let file = std::fs::OpenOptions::new()
+        let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
@@ -169,8 +169,9 @@ mod macos {
             &app.sha256,
             app.size,
             response.into_body().into_reader(),
-            file,
+            &mut file,
         )?;
+        drop(file);
         let unpacked = staging.join("unpacked");
         std::fs::create_dir(&unpacked).map_err(stage)?;
         run(
@@ -424,7 +425,7 @@ mod tests {
         let body = std::fs::read(&zip).unwrap();
         let app = crate::manifest::AppBundle {
             url: crate::engine::tests::serve_once(body.clone()),
-            sha256: fetch::sha256_hex(&body),
+            sha256: crate::engine::tests::sha256_hex(&body),
             size: body.len() as u64,
         };
         let running = identity("Identifier=work\nTeamIdentifier=AB12CD34EF\n").unwrap();

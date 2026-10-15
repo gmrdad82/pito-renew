@@ -67,6 +67,19 @@ fetched twice is fine. `BUILT_AT` is a time the release build can't predate
 its manifest by, such as its commit time from the build script, and
 `last_issued_seen` is the newest `issued` the app has stored.
 
+### Refuse another app's manifest
+
+If one key signs the manifests of several apps, any of them verifies at any
+URL, so a misconfigured host or CDN could serve app B's manifest where app A
+looks and A would install B. When the manifest carries `app`
+([Sign and publish](../sign-and-publish/)), call `check_app`, which makes
+every check `check_since` makes and also refuses with `WrongApp` a manifest
+whose `app` isn't the one the app passes, or that has none:
+
+```rust
+let check = renew::check_app(MANIFEST_URL, RELEASE_KEY, "work", env!("CARGO_PKG_VERSION"), floor)?;
+```
+
 ## 3. Install and relaunch
 
 ```rust
@@ -81,8 +94,9 @@ if let Some(update) = check.update {
 ```
 
 `install(&binary, &exe)` downloads to `<exe>.staging`, a file it creates
-itself with mode 0755, hashing as it goes, with a 180 s timeout. It checks
-the exact size and the sha256, then renames the file over `exe` in one step.
+itself with mode 0600, hashing as it goes, with a 180 s timeout. It checks
+the exact size and the sha256, makes the file 0755, then renames it over
+`exe` in one step.
 On any failure it removes the staging file it made and the old binary stays
 where it was.
 
@@ -131,6 +145,7 @@ Every failure is a `RenewError` whose message names what went wrong:
 | `NoAppBundle` | this app runs from a macOS .app bundle and no bundle is published for it |
 | `NotWritable` | … is not writable by this user, so the app can't update itself |
 | `StaleManifest` | the release manifest was issued before …, so it is stale or replayed |
+| `WrongApp` | the release manifest is not …'s, so it was served at the wrong url |
 
 A missing `.minisig` counts as `ManifestUnreachable`. None of them leaves a
 new binary in place: an app can show the message and carry on at its current
