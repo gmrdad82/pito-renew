@@ -4,8 +4,8 @@ pito-renew
 Images in docs/images/, all made from this repository:
 
 - demo.gif, forged.gif, major.gif: recordings of examples/demo.rs, made with
-  prec from render/terminal.toml and the tapes in render/terminal/, converted
-  with pconv.
+  prec from render/terminal.toml and the tapes in render/terminal/, made into
+  GIFs with pcod (pito-codecs).
 - update-paired.png: drawn by pcmp (pito-compare) from
   render/charts/update.toml, numbers from examples/speed.rs.
 - size-bars.png: drawn by pcmp (pito-compare) from render/charts/size.toml,

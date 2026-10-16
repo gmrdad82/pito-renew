@@ -289,7 +289,7 @@ beside [pito-storekit](https://github.com/gmrdad82/pito-storekit) (the apps' SQL
 store and its backups) and [pito-tui](https://github.com/gmrdad82/pito-tui)
 (the terminal app shell). The clips here were recorded with
 [prec](https://github.com/gmrdad82/prec) and made into GIFs with
-[pconv](https://github.com/gmrdad82/pconv), and the charts drawn with
+[pcod](https://github.com/gmrdad82/pito-codecs) (pito-codecs), and the charts drawn with
 [pito-compare](https://github.com/gmrdad82/pito-compare).
 
 ## Build and test
