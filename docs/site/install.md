@@ -15,11 +15,11 @@ renew = { git = "https://github.com/gmrdad82/pito-renew", tag = "@VERSION@" }
 
 The same line works on every platform renew supports:
 
-- **Linux x86_64**: tested in CI on ubuntu.
-- **macOS on Apple Silicon**: tested in CI on macos.
+- **Linux x86_64**: tested on Linux.
+- **macOS on Apple Silicon**: tested on macOS.
 - **Windows**: through WSL, where it is Linux. The crate also builds for
   native Windows, where the swap parks the running binary as `<exe>.old`
-  first; CI doesn't run that path, so it is untested.
+  first; the tests don't run that path, so it is untested.
 
 It needs Rust 1.97 or later and no system library: HTTPS is
 [ureq](https://crates.io/crates/ureq) with rustls.

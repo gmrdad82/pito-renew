@@ -2,7 +2,6 @@
 
 # pito-renew
 
-[![CI](https://github.com/gmrdad82/pito-renew/actions/workflows/ci.yml/badge.svg)](https://github.com/gmrdad82/pito-renew/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/tag/gmrdad82/pito-renew)](https://github.com/gmrdad82/pito-renew/tags)
 
 Self-update for a Rust app, in one small crate, `renew`, part of
@@ -21,7 +20,7 @@ carries and the binary's size and sha256 match what was signed.
 | Added to a stripped release binary | **1.88 MiB**, HTTPS included |
 
 [How each number was measured](#how-it-measures). Works on Linux and macOS
-(Windows through WSL), CI-tested on both.
+(Windows through WSL), tested on both.
 
 ## Install and first use
 
@@ -86,8 +85,8 @@ it beside the running bundle, refuses it unless `codesign --verify --deep
 swaps the two bundles in one step and keeps the old one as `<bundle>.old`
 until the next start. `restart` opens the new bundle. An app this user can't
 write, such as one owned by root in `/Applications`, answers that it can't
-update itself before downloading anything. Tested only on GitHub's macOS
-runners, without a notarised bundle.
+update itself before downloading anything. Tested only on macOS without a
+notarised bundle.
 
 ### Refuses a manifest it didn't sign
 
@@ -258,7 +257,7 @@ for it, an app folder this user can't write, a stale manifest, or another
 app's manifest.
 
 The crate also builds for native Windows, where the swap parks the running
-binary as `<exe>.old` first; CI doesn't run that path, so it is untested.
+binary as `<exe>.old` first; the tests don't run that path, so it is untested.
 
 ## How it measures
 
@@ -305,7 +304,7 @@ their downloads from a local port and write their scratch files under
 `bin/docs-bundle` builds `tmp/docs-bundle/docs-vX.Y.Z.tar.gz` for
 [docs.pitomd.com](https://docs.pitomd.com/pito-renew/): the guides in
 `docs/site/`, the images, the changelog and the `cargo doc` API reference.
-The release workflow attaches it to each tag's GitHub Release.
+Each tag's GitHub Release carries it.
 
 ## Contributing
 

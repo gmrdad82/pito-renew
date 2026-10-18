@@ -27,7 +27,7 @@ match what was signed.
 | Added to a stripped release binary | **1.88 MiB**, HTTPS included |
 
 [Measure speed and size](guides/measure/) shows how each number was taken.
-Works on Linux and macOS (Windows through WSL), CI-tested on both.
+Works on Linux and macOS (Windows through WSL), tested on both.
 
 ## Where to go
 

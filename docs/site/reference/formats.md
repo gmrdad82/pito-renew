@@ -87,8 +87,8 @@ in a bundle, `install`:
 
 `restart(&exe)` then opens the new bundle with `open -n`, and the next
 `clean_old_binary(&exe)` removes `<bundle>.old`. The swap follows Sparkle's
-(see INSPIRATION.md). Tested only on GitHub's macOS runners, with bundles
-that aren't notarised: the refusals and the swap are exercised there, a
+(see INSPIRATION.md). Tested only on macOS, with bundles that aren't
+notarised: the refusals and the swap are exercised there, a
 notarised end-to-end update is not.
 
 ## Platform keys

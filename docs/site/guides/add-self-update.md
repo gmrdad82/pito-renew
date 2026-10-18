@@ -119,8 +119,8 @@ If the user can't write the bundle or its folder, such as an app owned by
 root in `/Applications` or one run from a disk image, `install` answers
 `NotWritable` before downloading anything: show that the app can't update
 itself there. [Formats](../../reference/formats/#the-app-bundle-on-macos)
-lists every step. This path is tested only on GitHub's macOS runners, without
-a notarised bundle.
+lists every step. This path is tested only on macOS without a notarised
+bundle.
 
 The app keeps its own ceremony around these calls (a backup first, a prompt
 to the user, a quiet moment to swap) and picks when to make them.
