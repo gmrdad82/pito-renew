@@ -22,6 +22,8 @@ carries and the binary's size and sha256 match what was signed.
 [How each number was measured](#how-it-measures). Works on Linux and macOS
 (Windows through WSL), tested on both.
 
+Got questions or doubts? Ping me on Discord: https://discord.gg/XsNcn3kYzn
+
 ## Install and first use
 
 Add it from git, pinned to a release tag (it isn't on crates.io):
