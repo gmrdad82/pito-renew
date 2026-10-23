@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.1.1 — 2026-10-23
+
+### Changed
+
+- `install` now refuses a leftover `<exe>.staging` before it opens any connection, so a second install or a crashed run's file costs no download; `clean_old_binary` at start-up still clears it.
+- Tests cover `check`, `check_since`, `check_app`, `install` and `clean_old_binary` end to end, with their happy and bad paths; line coverage is 98.6%.
+- The README names pcod (pito-codecs) for its GIFs and has a line to ask questions on Discord.
+
 ## v3.1.0 — 2026-10-15
 
 ### Added
