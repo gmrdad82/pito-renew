@@ -248,4 +248,41 @@ mod tests {
         let outcome = check("http://example.com/m.json", &keys().pk.to_base64(), "1.0.0");
         assert!(matches!(outcome, Err(RenewError::InsecureUrl)));
     }
+
+    #[test]
+    fn a_url_that_does_not_parse_or_names_no_host_is_not_loopback() {
+        assert!(!loopback("http://exa mple.com/m.json"));
+        assert!(!loopback("/manifest.json"));
+        assert!(!loopback(""));
+    }
+
+    #[test]
+    fn localhost_in_any_case_and_loopback_addresses_are_loopback() {
+        assert!(loopback("http://localhost:8080/m.json"));
+        assert!(loopback("http://LOCALHOST/m.json"));
+        assert!(loopback("http://LocalHost:1/m.json"));
+        assert!(loopback("http://127.0.0.1:9/m.json"));
+        assert!(loopback("http://127.8.9.10/m.json"));
+        assert!(loopback("http://[::1]:9/m.json"));
+    }
+
+    #[test]
+    fn a_name_that_only_looks_like_loopback_is_not_loopback() {
+        assert!(!loopback("http://127.0.0.1.example.com/m.json"));
+        assert!(!loopback("http://localhost.example.com/m.json"));
+        assert!(!loopback("http://example.com/127.0.0.1"));
+        assert!(!loopback("http://127.0.0.1@example.com/m.json"));
+        assert!(!loopback("http://10.0.0.1/m.json"));
+        assert!(!loopback("http://[::2]/m.json"));
+    }
+
+    #[test]
+    fn a_name_that_only_looks_like_loopback_is_refused_as_insecure() {
+        let outcome = check(
+            "http://127.0.0.1.example.com/m.json",
+            &keys().pk.to_base64(),
+            "1.0.0",
+        );
+        assert!(matches!(outcome, Err(RenewError::InsecureUrl)));
+    }
 }

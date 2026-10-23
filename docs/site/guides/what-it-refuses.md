@@ -70,9 +70,10 @@ While installing, `install` refuses:
 
 - a sha256 that isn't 64 hex digits, or a size of 0 or over the caps, even
   for a `Binary` the app built or stored itself;
-- plain http to any host but this machine, redirects included;
 - to start when `<exe>.staging` already exists, so it never writes through a
-  planted file or link, or into another install's download;
+  planted file or link, or into another install's download, and makes no
+  connection;
+- plain http to any host but this machine, redirects included;
 - more bytes than were published, fewer, or a sha256 that differs.
 
 The staging file is 0600 while it downloads and becomes 0755 only after its

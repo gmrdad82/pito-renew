@@ -34,20 +34,22 @@ pub fn install(binary: &Binary, exe: &Path) -> Result<(), RenewError> {
     if let Some(bundle) = crate::bundle::bundle_of(exe) {
         return crate::bundle::install(binary, &bundle);
     }
-    let response = crate::get(&binary.url, DOWNLOAD_TIMEOUT, RenewError::DownloadFailed)?;
     let staging = staging_path(exe);
     let mut file = create_staging(&staging)?;
-    let outcome = download_verified(
-        &binary.sha256,
-        binary.size,
-        response.into_body().into_reader(),
-        &mut file,
-    )
-    .and_then(|()| executable(&file))
-    .and_then(|()| {
-        drop(file);
-        swap_in(exe, &staging)
-    });
+    let outcome = crate::get(&binary.url, DOWNLOAD_TIMEOUT, RenewError::DownloadFailed)
+        .and_then(|response| {
+            download_verified(
+                &binary.sha256,
+                binary.size,
+                response.into_body().into_reader(),
+                &mut file,
+            )
+        })
+        .and_then(|()| executable(&file))
+        .and_then(|()| {
+            drop(file);
+            swap_in(exe, &staging)
+        });
     if outcome.is_err() {
         let _ = std::fs::remove_file(&staging);
     }
@@ -314,7 +316,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_plain_http_binary_url_off_this_machine_is_refused_before_anything_is_staged() {
+    fn a_plain_http_binary_url_off_this_machine_is_refused_and_nothing_is_left_staged() {
         let dir = scratch();
         let exe = dir.path().join("pito-work");
         std::fs::write(&exe, b"old binary").unwrap();
@@ -397,6 +399,82 @@ pub(crate) mod tests {
                 .file_type()
                 .is_file()
         );
+    }
+
+    #[test]
+    fn download_verified_refuses_a_checksum_of_the_wrong_length_before_reading() {
+        let dir = scratch();
+        let path = dir.path().join("staged");
+        let mut file = File::create(&path).unwrap();
+        let body = b"payload".to_vec();
+
+        for sha in ["ab".repeat(31) + "a", "ab".repeat(33), String::new()] {
+            let mut reader = std::io::Cursor::new(body.clone());
+            let outcome = download_verified(&sha, body.len() as u64, &mut reader, &mut file);
+            assert!(matches!(outcome, Err(RenewError::ManifestMalformed)));
+            assert_eq!(reader.position(), 0);
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), b"");
+    }
+
+    #[test]
+    fn download_verified_refuses_a_checksum_with_non_hex_digits() {
+        let dir = scratch();
+        let mut file = File::create(dir.path().join("staged")).unwrap();
+        let body = b"payload";
+
+        for sha in ["zz".repeat(32), "az".repeat(32)] {
+            let outcome = download_verified(&sha, body.len() as u64, &body[..], &mut file);
+            assert!(matches!(outcome, Err(RenewError::ManifestMalformed)));
+        }
+    }
+
+    struct CutOff {
+        left: Vec<u8>,
+    }
+
+    impl Read for CutOff {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.left.is_empty() {
+                return Err(std::io::ErrorKind::ConnectionReset.into());
+            }
+            let n = buf.len().min(self.left.len());
+            buf[..n].copy_from_slice(&self.left[..n]);
+            self.left.drain(..n);
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn a_connection_dropped_mid_body_is_a_download_failure() {
+        let dir = scratch();
+        let mut file = File::create(dir.path().join("staged")).unwrap();
+        let body = b"the new binary bytes";
+        let reader = CutOff {
+            left: body[..8].to_vec(),
+        };
+
+        let outcome = download_verified(&sha256_hex(body), body.len() as u64, reader, &mut file);
+
+        assert!(matches!(outcome, Err(RenewError::DownloadFailed)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_swap_that_fails_removes_the_verified_staging_file_and_leaves_the_target_alone() {
+        let dir = scratch();
+        let exe = dir.path().join("pito-work");
+        std::fs::create_dir(&exe).unwrap();
+        std::fs::write(exe.join("kept"), b"kept").unwrap();
+        let body = b"the new binary bytes".to_vec();
+        let url = serve_once(body.clone());
+        let binary = binary_for(&body, url);
+
+        let outcome = install(&binary, &exe);
+
+        assert!(matches!(outcome, Err(RenewError::SwapFailed { .. })));
+        assert!(!staging_path(&exe).exists());
+        assert_eq!(std::fs::read(exe.join("kept")).unwrap(), b"kept");
     }
 
     #[test]
